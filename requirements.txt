@@ -1,0 +1,5 @@
+PyQt5==5.15.9
+PyQt5-tools==5.15.9.3.3
+python-chess==1.999
+configparser==6.0.0
+PyQtWebEngine==5.15.6 

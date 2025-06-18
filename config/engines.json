@@ -1,0 +1,41 @@
+{
+    "engines": [
+        {
+            "name": "Fairy-Stockfish",
+            "path": "./engines/Fairy-Stockfish/fairy-stockfish",
+            "protocol": "ucci",
+            "description": "Engine cờ tướng mạnh dựa trên Stockfish",
+            "author": "Fairy-Stockfish Team",
+            "supported_options": {
+                "Hash": {
+                    "type": "spin",
+                    "default": 16,
+                    "min": 1,
+                    "max": 1024,
+                    "description": "Kích thước bộ nhớ hash (MB)"
+                },
+                "Threads": {
+                    "type": "spin",
+                    "default": 1,
+                    "min": 1,
+                    "max": 16,
+                    "description": "Số thread để tìm kiếm"
+                },
+                "Contempt": {
+                    "type": "spin",
+                    "default": 0,
+                    "min": -100,
+                    "max": 100,
+                    "description": "Điều chỉnh đánh giá vị trí"
+                }
+            }
+        }
+    ],
+    "default_engine": "Fairy-Stockfish",
+    "engine_settings": {
+        "default_depth": 10,
+        "default_time": 5000,
+        "auto_play": false,
+        "analysis_mode": true
+    }
+}
