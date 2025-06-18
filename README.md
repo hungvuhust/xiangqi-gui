@@ -1,6 +1,50 @@
 # Xiangqi GUI - Game Cờ Tướng
 
-Game cờ tướng sử dụng PyQt5 với engine UCI/UCCI bên ngoài.
+Game cờ tướng sử dụng PyQt5 với engine UCI/UCCI bên ngoài, hỗ trợ phân tích engine và gợi ý nước đi.
+
+## Tính năng chính
+
+### 🎮 Gameplay
+- **Bàn cờ tương tác**: Click để di chuyển quân cờ với validation luật chơi đầy đủ
+- **Undo/Redo**: Hoàn tác và làm lại nước đi với phím tắt (Ctrl+Z / Ctrl+Y)
+- **Move validation**: Kiểm tra luật cờ tướng đầy đủ bao gồm:
+  - Luật di chuyển từng quân cờ
+  - Kiểm tra chiếu tướng
+  - Luật "tướng đối mặt"
+  - Phát hiện chiếu bí và hòa cờ
+
+### 🤖 Engine Integration
+- **Multi-engine support**: Hỗ trợ nhiều engine khác nhau
+- **UCCI Protocol**: Giao tiếp thread-safe với engine cờ tướng chuẩn
+- **Engine hints**: Gợi ý nước đi tốt nhất với mũi tên màu sắc
+- **Continuous analysis**: Chế độ phân tích liên tục với depth cao
+- **Dual arrow system**: 
+  - Mũi tên chính cho bestmove (tím/xanh dương tùy lượt)
+  - Mũi tên phụ cho ponder move (trong suốt, đứt nét)
+
+### 📊 Analysis Features
+- **Engine analysis panel**: Hiển thị chi tiết:
+  - Depth (độ sâu tìm kiếm)
+  - Evaluation score (điểm đánh giá với màu sắc)
+  - Nodes và NPS (tốc độ tính toán)
+  - Principal Variation (biến thể chính)
+  - Time spent (thời gian tính toán)
+- **Real-time updates**: Cập nhật thông tin phân tích theo thời gian thực
+- **Position setup**: Thiết lập vị trí từ FEN notation
+
+### 🎨 User Interface
+- **Modern GUI**: Giao diện PyQt5 đẹp mắt và responsive
+- **Move history**: Lịch sử nước đi với notation chuẩn
+- **Status updates**: Thông báo trạng thái chi tiết
+- **Toolbar shortcuts**: Các nút nhanh cho tính năng chính
+- **Menu system**: Menu đầy đủ với phím tắt
+
+### 🔧 Technical Features
+- **Thread-safe communication**: Giao tiếp engine không block UI
+- **Memory management**: Quản lý memory engine an toàn
+- **Error handling**: Xử lý lỗi engine và exception robust
+- **Coordinate conversion**: Chuyển đổi tọa độ board/engine chính xác
+- **Resource cleanup**: Dọn dẹp resource khi đóng ứng dụng
 
 ## Cấu trúc thư mục
 
@@ -10,110 +54,106 @@ xiangqi-gui/
 ├── requirements.txt        # Dependencies
 ├── config/
 │   ├── __init__.py
-│   ├── settings.py        # Cấu hình game (màu sắc, kích thước, đường dẫn engine)
-│   └── engines.json       # Danh sách các engine có sẵn
+│   ├── settings.py        # Cấu hình game
+│   └── engines.json       # Danh sách engine
 ├── src/
-│   ├── __init__.py
 │   ├── gui/
-│   │   ├── __init__.py
-│   │   ├── main_window.py      # Cửa sổ chính
-│   │   ├── board_widget.py     # Widget hiển thị bàn cờ
-│   │   ├── piece_widget.py     # Widget cho từng quân cờ
-│   │   ├── game_info_widget.py # Widget thông tin game (thời gian, nước đi)
+│   │   ├── main_window.py      # Cửa sổ chính với engine integration
+│   │   ├── board_widget.py     # Widget bàn cờ với dual arrow system
+│   │   ├── game_info_widget.py # Widget thông tin game và engine analysis
 │   │   └── dialogs/
-│   │       ├── __init__.py
-│   │       ├── engine_settings.py  # Dialog cấu hình engine
-│   │       ├── game_settings.py    # Dialog cài đặt game
-│   │       └── about_dialog.py     # Dialog về ứng dụng
+│   │       └── fen_dialog.py   # Dialog setup position
 │   ├── core/
-│   │   ├── __init__.py
-│   │   ├── board.py           # Logic bàn cờ và trạng thái game
-│   │   ├── pieces.py          # Định nghĩa các quân cờ
-│   │   ├── moves.py           # Logic nước đi và validation
-│   │   ├── game_state.py      # Quản lý trạng thái game
-│   │   └── notation.py        # Xử lý ký hiệu cờ (FEN, PGN)
+│   │   └── game_state.py      # Logic game với undo/redo
 │   ├── engine/
-│   │   ├── __init__.py
-│   │   ├── engine_manager.py  # Quản lý engine process
-│   │   ├── ucci_protocol.py   # Giao thức UCCI cho cờ tướng
-│   │   ├── uci_protocol.py    # Giao thức UCI (nếu engine hỗ trợ)
-│   │   └── engine_wrapper.py  # Wrapper cho subprocess
+│   │   └── ucci_protocol.py   # Thread-safe UCCI protocol
 │   └── utils/
-│       ├── __init__.py
-│       ├── constants.py       # Hằng số (kích thước bàn cờ, vị trí quân)
-│       ├── helpers.py         # Các hàm tiện ích
-│       └── logger.py          # Logging system
+│       ├── constants.py       # Hằng số game
+│       └── svg_renderer.py    # SVG rendering utilities
 ├── assets/
 │   ├── images/
-│   │   ├── pieces/           # Hình ảnh quân cờ
-│   │   │   ├── red/          # Quân đỏ
-│   │   │   │   ├── king.png, advisor.png, elephant.png,
-│   │   │   │   ├── horse.png, chariot.png, cannon.png, soldier.png
-│   │   │   └── black/        # Quân đen
-│   │   │       └── (tương tự quân đỏ)
-│   │   ├── board/
-│   │   │   ├── board_bg.png  # Nền bàn cờ
-│   │   │   ├── grid.png      # Lưới bàn cờ
-│   │   │   └── palace.png    # Cung thành
-│   │   └── ui/
-│   │       ├── icons/        # Icons cho menu, toolbar
-│   │       └── buttons/      # Hình ảnh nút bấm
-│   ├── sounds/              # Âm thanh (tùy chọn)
-│   │   ├── move.wav
-│   │   ├── capture.wav
-│   │   └── check.wav
-│   └── fonts/               # Fonts đặc biệt (nếu cần)
-├── engines/                 # Thư mục chứa engine executables
-│   ├── README.md           # Hướng dẫn tải và cài đặt engine
-│   └── (các engine executable sẽ được đặt ở đây)
-├── tests/                   # Unit tests
-│   ├── __init__.py
-│   ├── test_board.py
-│   ├── test_moves.py
-│   ├── test_engine.py
-│   └── test_gui.py
-└── docs/                    # Documentation
-    ├── INSTALLATION.md
-    ├── USER_GUIDE.md
-    └── DEVELOPER_GUIDE.md
+│   │   ├── pieces/           # Hình ảnh quân cờ PNG
+│   │   │   ├── red/          # Quân đỏ (rK, rA, rB, rN, rR, rC, rP)
+│   │   │   └── black/        # Quân đen (bK, bA, bB, bN, bR, bC, bP)
+│   │   └── board/
+│   │       └── xiangqiboard_.png  # Nền bàn cờ
+│   └── sounds/              # Âm thanh (tùy chọn)
+├── engines/                 # Engine executables
+│   └── Fairy-Stockfish/     # Engine mặc định
+└── tests/                   # Unit tests
 ```
 
-## Tính năng chính
+## Hướng dẫn sử dụng
 
-### GUI Components:
-- **Bàn cờ tương tác**: Click để di chuyển, highlight nước đi có thể
-- **Hiển thị thông tin**: Thời gian, nước đi, điểm số từ engine
-- **Menu & Toolbar**: New game, load/save, settings, engine configuration
-- **Status bar**: Hiển thị trạng thái kết nối engine
-
-### Engine Integration:
-- **Multi-engine support**: Hỗ trợ nhiều engine khác nhau
-- **UCCI Protocol**: Giao tiếp với engine cờ tướng chuẩn
-- **Subprocess management**: Quản lý tiến trình engine an toàn
-- **Engine analysis**: Hiển thị đánh giá và biến thể từ engine
-
-### Game Features:
-- **Undo/Redo**: Quay lại nước đi
-- **Game saving**: Lưu/load game với format PGN
-- **Position setup**: Thiết lập vị trí tùy ý
-- **Time control**: Quản lý thời gian cho từng bên
-
-## Công nghệ sử dụng
-
-- **PyQt5**: GUI framework
-- **Subprocess**: Giao tiếp với engine
-- **JSON**: Cấu hình và lưu trữ
-- **Threading**: Xử lý engine không đồng bộ
-
-## Engine được đề xuất
-
-- **Pikafish**: Engine cờ tướng mạnh, hỗ trợ UCCI
-- **ElephantEye**: Engine mã nguồn mở
-- **Cyclone**: Engine cờ tướng nhanh
-
-## Cài đặt
-
+### 🚀 Khởi động
 ```bash
 pip install -r requirements.txt
 python main.py
-``` 
+```
+
+### 🎯 Chơi cờ
+1. **New Game**: Bắt đầu ván mới
+2. **Di chuyển**: Click quân cờ rồi click ô đích
+3. **Undo/Redo**: Ctrl+Z để hoàn tác, Ctrl+Y để làm lại
+4. **Load Engine**: Chọn engine từ menu hoặc toolbar
+
+### 🔍 Engine Features
+1. **Load Engine**: Chọn file engine executable (Fairy-Stockfish khuyến nghị)
+2. **Enable Hints**: Bật gợi ý để thấy mũi tên bestmove
+3. **Analysis Mode**: Bật phân tích liên tục để theo dõi evaluation
+4. **Engine Panel**: Xem thông tin chi tiết depth, score, nodes, PV
+
+### 📋 FEN Support
+- **Copy FEN**: Sao chép position hiện tại
+- **Load FEN**: Thiết lập position từ FEN string
+- **Engine sync**: Engine tự động đồng bộ với position mới
+
+## Engine được đề xuất
+
+- **Fairy-Stockfish**: Engine đa variant mạnh, hỗ trợ Xiangqi/UCCI
+- **Pikafish**: Engine cờ tướng chuyên dụng
+- **ElephantEye**: Engine mã nguồn mở Trung Quốc
+
+## Công nghệ sử dụng
+
+- **PyQt5**: GUI framework với signals/slots thread-safe
+- **Subprocess**: Giao tiếp engine process
+- **Threading**: Xử lý engine không đồng bộ
+- **UCCI Protocol**: Giao thức chuẩn cho engine cờ tướng
+- **FEN Notation**: Format position chuẩn
+
+## Phím tắt
+
+- `Ctrl+N`: Game mới
+- `Ctrl+Z`: Hoàn tác nước đi
+- `Ctrl+Y`: Làm lại nước đi
+- `Ctrl+H`: Bật/tắt gợi ý engine
+- `Ctrl+A`: Bật/tắt phân tích liên tục
+- `Ctrl+L`: Load engine
+- `Ctrl+C`: Copy FEN position
+- `F1`: Về ứng dụng
+
+## Troubleshooting
+
+### Engine không hoạt động
+- Kiểm tra file engine executable có quyền thực thi
+- Đảm bảo engine hỗ trợ UCCI protocol
+- Xem console log để debug
+
+### Performance issues
+- Giảm depth analysis nếu engine chậm
+- Tắt continuous analysis khi không cần
+- Kiểm tra RAM usage của engine process
+
+### UI freezing
+- Ứng dụng sử dụng thread-safe communication
+- Nếu vẫn freeze, restart và báo bug
+
+## Development
+
+Ứng dụng được thiết kế modular với:
+- **Clean separation**: GUI/Core/Engine tách biệt
+- **Thread safety**: Engine communication không block UI
+- **Error handling**: Robust exception handling
+- **Memory management**: Proper resource cleanup
+- **Extensible**: Dễ thêm engine và features mới 
