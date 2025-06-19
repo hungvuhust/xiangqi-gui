@@ -32,6 +32,7 @@ class MainWindow(QMainWindow):
         self.engine_manager = UCCIEngineManager()
         self.engine_log = []
         self.ignore_engine_info = False  # Flag để ignore engine info sau khi tắt analysis
+        self.chinese_move_notation = True  # Flag để sử dụng ký hiệu Trung Quốc
 
         self.init_ui()
         self.setup_connections()
@@ -176,7 +177,7 @@ class MainWindow(QMainWindow):
 
         toggle_hints_action = QAction('&Toggle Mũi Tên', self)
         toggle_hints_action.setCheckable(True)
-        toggle_hints_action.setChecked(False)
+        toggle_hints_action.setChecked(True)
         toggle_hints_action.setStatusTip('Bật/tắt hiển thị mũi tên gợi ý')
         toggle_hints_action.triggered.connect(self.toggle_arrow_display)
         engine_menu.addAction(toggle_hints_action)
@@ -198,9 +199,39 @@ class MainWindow(QMainWindow):
         # Menu View
         view_menu = menubar.addMenu('&Hiển Thị')
 
+        # Flip board action
         flip_board_action = QAction('&Lật Bàn Cờ', self)
-        flip_board_action.setShortcut('F')
+        flip_board_action.setShortcut('Ctrl+F')
+        flip_board_action.setStatusTip(
+            'Lật bàn cờ (xem từ góc nhìn đối phương)')
+        flip_board_action.triggered.connect(self.flip_board)
         view_menu.addAction(flip_board_action)
+
+        view_menu.addSeparator()
+
+        # Toggle coordinate style action
+        toggle_coords_action = QAction('&Tọa Độ Kiểu Trung Quốc', self)
+        toggle_coords_action.setCheckable(True)
+        toggle_coords_action.setChecked(True)
+        toggle_coords_action.setStatusTip(
+            'Chuyển đổi giữa tọa độ a-i/0-9 và 1-9 kiểu Trung Quốc')
+        toggle_coords_action.triggered.connect(self.toggle_coordinate_style)
+        view_menu.addAction(toggle_coords_action)
+
+        # Toggle move notation style action
+        toggle_move_notation_action = QAction(
+            '&Ký Hiệu Nước Đi Trung Quốc', self)
+        toggle_move_notation_action.setCheckable(True)
+        toggle_move_notation_action.setChecked(True)
+        toggle_move_notation_action.setStatusTip(
+            'Chuyển đổi giữa a1→b2 và "tướng 5 tấn 1"')
+        toggle_move_notation_action.triggered.connect(
+            self.toggle_move_notation_style)
+        view_menu.addAction(toggle_move_notation_action)
+
+        # Lưu reference để sử dụng sau
+        self.coords_action = toggle_coords_action
+        self.move_notation_action = toggle_move_notation_action
 
         # Menu Help
         help_menu = menubar.addMenu('&Trợ Giúp')
@@ -365,8 +396,19 @@ class MainWindow(QMainWindow):
 
             # Update UI với notation đúng
             piece_name = self.get_piece_name(piece)
-            formatted_move = self.format_move_notation(
-                move_notation, is_engine_notation=False)
+
+            # Format move dựa trên style đã chọn
+            if self.chinese_move_notation:
+                # Sử dụng Chinese notation
+                from ..utils.constants import format_move_chinese_style
+                formatted_move = format_move_chinese_style(
+                    piece, from_row, from_col, to_row, to_col,
+                    'red' if piece.isupper() else 'black')
+            else:
+                # Sử dụng international notation
+                formatted_move = self.format_move_notation(
+                    move_notation, is_engine_notation=False)
+
             if captured_piece:
                 status_msg = f"✓ {piece_name} {formatted_move} - Bắt {self.get_piece_name(captured_piece)}"
             else:
@@ -1036,3 +1078,215 @@ class MainWindow(QMainWindow):
 
         # Cập nhật text của menu item
         self.protocol_action.setText(f"&{protocol_name} Protocol")
+
+    def flip_board(self):
+        """Lật bàn cờ để xem từ góc nhìn đối phương"""
+        # Toggle flip state của board widget
+        self.board_widget.flip_board()
+
+        # Cập nhật status
+        if self.board_widget.is_flipped:
+            self.update_status("🔄 Đã lật bàn cờ - Xem từ góc nhìn quân Đen")
+        else:
+            self.update_status("🔄 Đã lật bàn cờ - Xem từ góc nhìn quân Đỏ")
+
+    def toggle_coordinate_style(self):
+        """Toggle giữa tọa độ quốc tế (a-i/0-9) và kiểu Trung Quốc (1-9)"""
+        # Toggle coordinate style của board widget
+        self.board_widget.toggle_coordinate_style()
+
+        # Cập nhật status
+        if self.board_widget.chinese_coords:
+            self.update_status("📍 Đã chuyển sang tọa độ kiểu Trung Quốc (1-9)")
+        else:
+            self.update_status("📍 Đã chuyển sang tọa độ quốc tế (a-i/0-9)")
+
+    def toggle_move_notation_style(self):
+        """Toggle giữa ký hiệu nước đi quốc tế và kiểu Trung Quốc"""
+        self.chinese_move_notation = not self.chinese_move_notation
+
+        # Cập nhật status
+        if self.chinese_move_notation:
+            self.update_status("📝 Đã chuyển sang ký hiệu nước đi Trung Quốc")
+        else:
+            self.update_status("📝 Đã chuyển sang ký hiệu nước đi quốc tế")
+
+        # Refresh game info để hiển thị lại moves với style mới
+        self.refresh_move_history()
+
+    def refresh_move_history(self):
+        """Refresh lại history moves với style notation mới"""
+        if hasattr(self, 'game_info_widget'):
+            # Clear current moves và rebuild
+            self.game_info_widget.clear_moves()
+
+            # Rebuild từ game state history
+            for i, move in enumerate(self.game_state.move_history):
+                formatted_move = self.format_move_for_display(move, i)
+                self.game_info_widget.add_move(formatted_move)
+
+    def format_move_for_display(self, move, move_index=None):
+        """
+        Format move cho hiển thị dựa trên style đã chọn
+
+        Args:
+            move: Move notation (e.g., "e0e1")
+            move_index: Index của move trong history (để xác định quân cờ)
+
+        Returns:
+            str: Formatted move
+        """
+        if self.chinese_move_notation and move_index is not None:
+            # Kiểu Trung Quốc: cần thông tin về quân cờ đã di chuyển
+            return self.format_move_chinese_from_history(move, move_index)
+        else:
+            # Kiểu quốc tế
+            return self.format_move_notation(move, is_engine_notation=False)
+
+    def format_move_chinese_from_history(self, move, move_index):
+        """
+        Format move theo kiểu Trung Quốc từ history
+        """
+        try:
+            # Parse move notation
+            if len(move) != 4:
+                return move
+
+            from_col = ord(move[0]) - ord('a')
+            from_row = int(move[1])
+            to_col = ord(move[2]) - ord('a')
+            to_row = int(move[3])
+
+            # Xác định quân cờ đã di chuyển từ history
+            # Cần replay lại moves để biết quân gì đã di chuyển
+            piece = self.get_piece_from_move_history(
+                move_index, from_row, from_col)
+            if piece:
+                # Xác định player từ move index
+                current_player = 'red' if move_index % 2 == 0 else 'black'
+
+                # Sử dụng function từ constants.py
+                from ..utils.constants import format_move_chinese_style
+                return format_move_chinese_style(piece, from_row, from_col, to_row, to_col, current_player)
+            else:
+                # Fallback về notation cũ
+                return self.format_move_notation(move, is_engine_notation=False)
+
+        except Exception as e:
+            print(f"Lỗi format move Chinese: {e}")
+            return self.format_move_notation(move, is_engine_notation=False)
+
+    def get_piece_from_move_history(self, move_index, from_row, from_col):
+        """
+        Lấy quân cờ đã di chuyển từ history bằng cách replay moves
+        """
+        try:
+            # Tạo temporary game state để replay
+            from ..core.game_state import GameState
+            temp_game = GameState()
+
+            # Replay tất cả moves cho đến move_index
+            for i in range(move_index + 1):
+                if i < len(self.game_state.move_history):
+                    move = self.game_state.move_history[i]
+                    if len(move) == 4:
+                        move_from_col = ord(move[0]) - ord('a')
+                        move_from_row = int(move[1])
+                        move_to_col = ord(move[2]) - ord('a')
+                        move_to_row = int(move[3])
+
+                        if i == move_index:
+                            # Đây là move chúng ta quan tâm
+                            return temp_game.board[move_from_row][move_from_col]
+                        else:
+                            # Replay move này
+                            temp_game.make_move(
+                                move_from_row, move_from_col, move_to_row, move_to_col)
+
+            return None
+        except Exception as e:
+            print(f"Lỗi get piece from history: {e}")
+            return None
+
+    def format_move_for_display(self, move, move_index=None):
+        """
+        Format move cho hiển thị dựa trên style đã chọn
+
+        Args:
+            move: Move notation (e.g., "e0e1")
+            move_index: Index của move trong history (để xác định quân cờ)
+
+        Returns:
+            str: Formatted move
+        """
+        if self.chinese_move_notation and move_index is not None:
+            # Kiểu Trung Quốc: cần thông tin về quân cờ đã di chuyển
+            return self.format_move_chinese_from_history(move, move_index)
+        else:
+            # Kiểu quốc tế
+            return self.format_move_notation(move, is_engine_notation=False)
+
+    def format_move_chinese_from_history(self, move, move_index):
+        """
+        Format move theo kiểu Trung Quốc từ history
+        """
+        try:
+            # Parse move notation
+            if len(move) != 4:
+                return move
+
+            from_col = ord(move[0]) - ord('a')
+            from_row = int(move[1])
+            to_col = ord(move[2]) - ord('a')
+            to_row = int(move[3])
+
+            # Xác định quân cờ đã di chuyển từ history
+            # Cần replay lại moves để biết quân gì đã di chuyển
+            piece = self.get_piece_from_move_history(
+                move_index, from_row, from_col)
+            if piece:
+                # Xác định player từ move index
+                current_player = 'red' if move_index % 2 == 0 else 'black'
+
+                # Sử dụng function từ constants.py
+                from ..utils.constants import format_move_chinese_style
+                return format_move_chinese_style(piece, from_row, from_col, to_row, to_col, current_player)
+            else:
+                # Fallback về notation cũ
+                return self.format_move_notation(move, is_engine_notation=False)
+
+        except Exception as e:
+            print(f"Lỗi format move Chinese: {e}")
+            return self.format_move_notation(move, is_engine_notation=False)
+
+    def get_piece_from_move_history(self, move_index, from_row, from_col):
+        """
+        Lấy quân cờ đã di chuyển từ history bằng cách replay moves
+        """
+        try:
+            # Tạo temporary game state để replay
+            from ..core.game_state import GameState
+            temp_game = GameState()
+
+            # Replay tất cả moves cho đến move_index
+            for i in range(move_index + 1):
+                if i < len(self.game_state.move_history):
+                    move = self.game_state.move_history[i]
+                    if len(move) == 4:
+                        move_from_col = ord(move[0]) - ord('a')
+                        move_from_row = int(move[1])
+                        move_to_col = ord(move[2]) - ord('a')
+                        move_to_row = int(move[3])
+
+                        if i == move_index:
+                            # Đây là move chúng ta quan tâm
+                            return temp_game.board[move_from_row][move_from_col]
+                        else:
+                            # Replay move này
+                            temp_game.make_move(
+                                move_from_row, move_from_col, move_to_row, move_to_col)
+
+            return None
+        except Exception as e:
+            print(f"Lỗi get piece from history: {e}")
+            return None

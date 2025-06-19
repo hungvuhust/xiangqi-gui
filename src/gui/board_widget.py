@@ -27,6 +27,7 @@ class BoardWidget(QWidget):
         self.possible_moves = []
         self.current_player = 'red'  # Thêm current_player tracking
         self.is_flipped = False
+        self.chinese_coords = True  # False = a-i/0-9, True = 1-9 kiểu Trung Quốc
 
         # Engine hints
         self.engine_hint = None  # Tuple (from_row, from_col, to_row, to_col)
@@ -43,9 +44,10 @@ class BoardWidget(QWidget):
 
     def init_ui(self):
         """Khởi tạo UI"""
-        # Tính kích thước widget dựa trên SVG
-        widget_width = BOARD_SVG_WIDTH + 2 * BOARD_MARGIN
-        widget_height = BOARD_SVG_HEIGHT + 2 * BOARD_MARGIN
+        # Tính kích thước widget dựa trên SVG + space cho coordinates
+        coordinate_margin = 40  # Extra space cho coordinates ở 4 phía
+        widget_width = BOARD_SVG_WIDTH + 2 * BOARD_MARGIN + coordinate_margin
+        widget_height = BOARD_SVG_HEIGHT + 2 * BOARD_MARGIN + coordinate_margin
 
         self.setMinimumSize(widget_width, widget_height)
         # Cho phép scale lên
@@ -140,6 +142,9 @@ class BoardWidget(QWidget):
 
         # Vẽ ponder move arrow
         self._draw_engine_ponder(painter)
+
+        # Vẽ coordinates ở 4 phía bàn cờ
+        self._draw_coordinates(painter)
 
         painter.end()
 
@@ -309,8 +314,18 @@ class BoardWidget(QWidget):
             self._draw_piece_fallback(painter, piece, row, col, board_rect)
             return
 
-        # Sử dụng hàm coordinate conversion mới
-        center_x, center_y = board_coords_to_pixel(row, col, board_rect)
+        # Xử lý coordinate transformation khi board bị flip
+        if self.is_flipped:
+            # Flip coordinates
+            display_row = 9 - row
+            display_col = 8 - col
+        else:
+            display_row = row
+            display_col = col
+
+        # Sử dụng hàm coordinate conversion với coordinates đã flip
+        center_x, center_y = board_coords_to_pixel(
+            display_row, display_col, board_rect)
 
         # Scale piece size theo tỷ lệ board
         scale_factor = min(board_rect.width() / BOARD_SVG_WIDTH,
@@ -342,7 +357,17 @@ class BoardWidget(QWidget):
             # Vẽ corner highlights cho ô được chọn
             board_rect = getattr(self, '_actual_board_rect',
                                  self._get_board_rect())
-            pixel_x, pixel_y = board_coords_to_pixel(row, col, board_rect)
+
+            # Xử lý coordinate transformation khi board bị flip
+            if self.is_flipped:
+                display_row = 9 - row
+                display_col = 8 - col
+            else:
+                display_row = row
+                display_col = col
+
+            pixel_x, pixel_y = board_coords_to_pixel(
+                display_row, display_col, board_rect)
 
             # Tính kích thước ô
             square_width = board_rect.width() / 8
@@ -394,8 +419,16 @@ class BoardWidget(QWidget):
                                  self._get_board_rect())
 
             for move_row, move_col in self.possible_moves:
+                # Xử lý coordinate transformation khi board bị flip
+                if self.is_flipped:
+                    display_row = 9 - move_row
+                    display_col = 8 - move_col
+                else:
+                    display_row = move_row
+                    display_col = move_col
+
                 pixel_x, pixel_y = board_coords_to_pixel(
-                    move_row, move_col, board_rect)
+                    display_row, display_col, board_rect)
 
                 # Kiểm tra có quân địch ở vị trí này không
                 target_piece = self.board_state[move_row][move_col]
@@ -514,7 +547,23 @@ class BoardWidget(QWidget):
         if not board_rect.contains(QPoint(pixel_x, pixel_y)):
             return None, None
 
-        return pixel_to_board_coords(pixel_x, pixel_y, board_rect)
+        result = pixel_to_board_coords(pixel_x, pixel_y, board_rect)
+
+        if result:
+            display_row, display_col = result
+
+            # Xử lý coordinate transformation khi board bị flip
+            if self.is_flipped:
+                # Chuyển từ display coordinates về logic coordinates
+                actual_row = 9 - display_row
+                actual_col = 8 - display_col
+            else:
+                actual_row = display_row
+                actual_col = display_col
+
+            return actual_row, actual_col
+        else:
+            return None
 
     def _coords_to_pos(self, row, col):
         """Chuyển đổi tọa độ thành position string"""
@@ -820,9 +869,23 @@ class BoardWidget(QWidget):
 
             board_rect = getattr(self, '_actual_board_rect',
                                  self._get_board_rect())
+
+            # Xử lý coordinate transformation khi board bị flip
+            if self.is_flipped:
+                display_from_row = 9 - from_row
+                display_from_col = 8 - from_col
+                display_to_row = 9 - to_row
+                display_to_col = 8 - to_col
+            else:
+                display_from_row = from_row
+                display_from_col = from_col
+                display_to_row = to_row
+                display_to_col = to_col
+
             from_x, from_y = board_coords_to_pixel(
-                from_row, from_col, board_rect)
-            to_x, to_y = board_coords_to_pixel(to_row, to_col, board_rect)
+                display_from_row, display_from_col, board_rect)
+            to_x, to_y = board_coords_to_pixel(
+                display_to_row, display_to_col, board_rect)
 
             # Debug info
             print(
@@ -909,9 +972,23 @@ class BoardWidget(QWidget):
 
             board_rect = getattr(self, '_actual_board_rect',
                                  self._get_board_rect())
+
+            # Xử lý coordinate transformation khi board bị flip
+            if self.is_flipped:
+                display_from_row = 9 - from_row
+                display_from_col = 8 - from_col
+                display_to_row = 9 - to_row
+                display_to_col = 8 - to_col
+            else:
+                display_from_row = from_row
+                display_from_col = from_col
+                display_to_row = to_row
+                display_to_col = to_col
+
             from_x, from_y = board_coords_to_pixel(
-                from_row, from_col, board_rect)
-            to_x, to_y = board_coords_to_pixel(to_row, to_col, board_rect)
+                display_from_row, display_from_col, board_rect)
+            to_x, to_y = board_coords_to_pixel(
+                display_to_row, display_to_col, board_rect)
 
             # Debug info
             print(
@@ -990,3 +1067,114 @@ class BoardWidget(QWidget):
                 painter.setPen(QPen(ponder_color, 2))
                 painter.drawRect(int(start_x - square_size/2), int(start_y - square_size/2),
                                  square_size, square_size)
+
+    def flip_board(self):
+        """Lật bàn cờ để xem từ góc nhìn đối phương"""
+        self.is_flipped = not self.is_flipped
+        self.update()  # Redraw board với flip state mới
+        print(f"🔄 Board flipped: {self.is_flipped}")
+
+    def toggle_coordinate_style(self):
+        """Toggle giữa tọa độ quốc tế (a-i/0-9) và kiểu Trung Quốc (1-9)"""
+        self.chinese_coords = not self.chinese_coords
+        self.update()  # Redraw coordinates với style mới
+        print(
+            f"🔄 Coordinate style: {'Chinese (1-9)' if self.chinese_coords else 'International (a-i/0-9)'}")
+
+    def _draw_coordinates(self, painter):
+        """Vẽ tọa độ (coordinates) ở 4 phía bàn cờ"""
+        board_rect = getattr(self, '_actual_board_rect',
+                             self._get_board_rect())
+
+        # Thiết lập font cho coordinates
+        font_size = max(
+            10, int(min(board_rect.width(), board_rect.height()) * 0.02))
+        font = QFont("Arial", font_size, QFont.Bold)
+        painter.setFont(font)
+        painter.setPen(QPen(QColor("#8B4513"), 2))  # Màu nâu đậm
+
+        if self.chinese_coords:
+            # Kiểu Trung Quốc: chỉ hiển thị số cột 1-9 từ phải qua trái (theo từng phía quân)
+            self._draw_chinese_coordinates(painter, board_rect)
+        else:
+            # Kiểu quốc tế: hiển thị a-i và 0-9
+            self._draw_international_coordinates(painter, board_rect)
+
+    def _draw_international_coordinates(self, painter, board_rect):
+        """Vẽ tọa độ kiểu quốc tế (a-i, 0-9)"""
+        # Tọa độ cột (a-i)
+        columns = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']
+
+        # Tọa độ hàng (0-9 hoặc flip tùy theo is_flipped)
+        if self.is_flipped:
+            # Khi flip: hiển thị từ góc nhìn đen (0 ở trên, 9 ở dưới)
+            rows = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+        else:
+            # Bình thường: từ góc nhìn đỏ (9 ở trên, 0 ở dưới)
+            rows = ['9', '8', '7', '6', '5', '4', '3', '2', '1', '0']
+
+        # Vẽ tọa độ cột ở trên và dưới
+        for col_idx, col_char in enumerate(columns):
+            if self.is_flipped:
+                # Khi flip: đảo ngược thứ tự cột
+                display_col = 8 - col_idx
+            else:
+                display_col = col_idx
+
+            # Tính vị trí pixel cho cột
+            pixel_x, _ = board_coords_to_pixel(0, display_col, board_rect)
+
+            # Vẽ ở trên bàn cờ
+            top_y = board_rect.top() - 15
+            painter.drawText(int(pixel_x - 5), int(top_y), col_char)
+
+            # Vẽ ở dưới bàn cờ
+            bottom_y = board_rect.bottom() + 20
+            painter.drawText(int(pixel_x - 5), int(bottom_y), col_char)
+
+        # Vẽ tọa độ hàng ở trái và phải
+        for row_idx, row_char in enumerate(rows):
+            # Tính vị trí pixel cho hàng
+            _, pixel_y = board_coords_to_pixel(row_idx, 0, board_rect)
+
+            # Vẽ ở trái bàn cờ
+            left_x = board_rect.left() - 20
+            painter.drawText(int(left_x), int(pixel_y + 5), row_char)
+
+            # Vẽ ở phải bàn cờ
+            right_x = board_rect.right() + 10
+            painter.drawText(int(right_x), int(pixel_y + 5), row_char)
+
+    def _draw_chinese_coordinates(self, painter, board_rect):
+        """Vẽ tọa độ kiểu Trung Quốc (1-9 từ phải qua trái theo từng phía quân)"""
+        # Chỉ vẽ số cột, không vẽ số hàng
+
+        # Số cột từ 1-9 (từ phải qua trái của từng phía)
+        chinese_cols = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
+
+        # Vẽ tọa độ cột ở trên (cho quân đen) và dưới (cho quân đỏ)
+        for col_idx, col_num in enumerate(chinese_cols):
+            if self.is_flipped:
+                # Khi flip:
+                # - Trên (quân đỏ): 1-9 từ phải qua trái
+                # - Dưới (quân đen): 1-9 từ phải qua trái
+                display_col_top = 8 - col_idx  # Trên: 1-9 từ phải qua trái
+                display_col_bottom = col_idx  # Dưới: 1-9 từ trái qua phải
+            else:
+                # Bình thường:
+                # - Trên (quân đen): 1-9 từ phải qua trái
+                # - Dưới (quân đỏ): 1-9 từ phải qua trái
+                display_col_top = col_idx  # Trên: 1-9 từ trái qua phải
+                display_col_bottom = 8 - col_idx  # Dưới: 1-9 từ phải qua trái
+
+            # Vẽ ở trên bàn cờ
+            pixel_x_top, _ = board_coords_to_pixel(
+                0, display_col_top, board_rect)
+            top_y = board_rect.top() - 15
+            painter.drawText(int(pixel_x_top - 5), int(top_y), col_num)
+
+            # Vẽ ở dưới bàn cờ
+            pixel_x_bottom, _ = board_coords_to_pixel(
+                0, display_col_bottom, board_rect)
+            bottom_y = board_rect.bottom() + 20
+            painter.drawText(int(pixel_x_bottom - 5), int(bottom_y), col_num)

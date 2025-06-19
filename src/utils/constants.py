@@ -15,8 +15,7 @@ BOARD_SVG_WIDTH = 900  # Revert về 900
 BOARD_SVG_HEIGHT = 1000  # Revert về 1000
 
 # UI scaling factor (để scale down 50%)
-UI_SCALE_FACTOR = 0.75
-
+UI_SCALE_FACTOR = 0.8
 # Piece size (tăng lên để không quá nhỏ)
 PIECE_SIZE = int(120 * UI_SCALE_FACTOR)  # 120 * 0.5 = 60px thay vì 40px
 
@@ -196,3 +195,126 @@ def pixel_to_board_coords(pixel_x, pixel_y, board_rect):
     if 0 <= row < BOARD_HEIGHT and 0 <= col < BOARD_WIDTH:
         return row, col
     return None
+
+
+def format_move_chinese_style(piece, from_row, from_col, to_row, to_col, current_player):
+    """
+    Chuyển đổi nước đi sang ký hiệu Trung Quốc
+
+    Args:
+        piece: Ký tự quân cờ (e.g., 'K', 'r')
+        from_row, from_col: Vị trí xuất phát
+        to_row, to_col: Vị trí đích
+        current_player: 'red' hoặc 'black'
+
+    Returns:
+        str: Nước đi kiểu Trung Quốc (e.g., "tướng 5 tấn 1")
+    """
+    # Lấy tên quân cờ
+    piece_name = PIECE_NAMES_VN.get(piece, piece)
+    piece_type = piece.lower()
+
+    # Chuyển đổi cột sang số Trung Quốc (1-9 từ phải qua trái theo từng phía)
+    if piece.isupper():  # Quân đỏ
+        col_num = 9 - from_col  # Đỏ: 1-9 từ phải qua trái
+    else:  # Quân đen
+        col_num = from_col + 1  # Đen: 1-9 từ trái qua phải
+
+    # Kiểm tra quân nào có thể dùng "bình"
+    can_use_horizontal = piece_type in ['k', 'r', 'c']  # Tướng, Xe, Pháo
+
+    # Kiểm tra tốt đã qua sông (có thể dùng "bình")
+    if piece_type == 'p':  # Tốt
+        if piece.isupper():  # Tốt đỏ
+            can_use_horizontal = from_row <= 4  # Đã qua sông (hàng 0-4)
+        else:  # Tốt đen
+            can_use_horizontal = from_row >= 5  # Đã qua sông (hàng 5-9)
+
+    # Xác định loại di chuyển
+    if from_col == to_col:
+        # Di chuyển theo chiều dọc
+        if piece.isupper():  # Quân đỏ
+            if to_row < from_row:  # Đi lên (giảm row)
+                move_type = "tấn"
+                steps = from_row - to_row
+            else:  # Đi xuống (tăng row)
+                move_type = "thoái"
+                steps = to_row - from_row
+        else:  # Quân đen
+            # Đi xuống (tăng row, nhưng là "tấn" theo góc nhìn đen)
+            if to_row > from_row:
+                move_type = "tấn"
+                steps = to_row - from_row
+            else:  # Đi lên (giảm row, nhưng là "thoái" theo góc nhìn đen)
+                move_type = "thoái"
+                steps = from_row - to_row
+    else:
+        # Di chuyển ngang hoặc chéo
+        if can_use_horizontal and from_row == to_row:
+            # Quân có thể dùng "bình" và di chuyển hoàn toàn ngang
+            move_type = "bình"
+            if piece.isupper():  # Quân đỏ
+                steps = 9 - to_col  # Vị trí đích theo số Trung Quốc
+            else:  # Quân đen
+                steps = to_col + 1  # Vị trí đích theo số Trung Quốc
+        else:
+            # Quân không thể dùng "bình" (Tượng, Sĩ, Mã, Tốt chưa qua sông)
+            # hoặc di chuyển chéo - dùng "tấn"/"thoái" + vị trí đích
+            if piece.isupper():  # Quân đỏ
+                if to_row < from_row:  # Về phía trên
+                    move_type = "tấn"
+                else:  # Về phía dưới
+                    move_type = "thoái"
+                steps = 9 - to_col  # Vị trí đích theo số Trung Quốc
+            else:  # Quân đen
+                if to_row > from_row:  # Về phía dưới (tấn cho đen)
+                    move_type = "tấn"
+                else:  # Về phía trên (thoái cho đen)
+                    move_type = "thoái"
+                steps = to_col + 1  # Vị trí đích theo số Trung Quốc
+
+    return f"{piece_name} {col_num} {move_type} {steps}"
+
+
+def get_piece_column_number(piece, col):
+    """
+    Lấy số cột theo kiểu Trung Quốc cho quân cờ
+
+    Args:
+        piece: Ký tự quân cờ
+        col: Cột bàn cờ (0-8)
+
+    Returns:
+        int: Số cột (1-9)
+    """
+    if piece.isupper():  # Quân đỏ
+        return 9 - col  # 1-9 từ phải qua trái
+    else:  # Quân đen
+        return col + 1  # 1-9 từ trái qua phải
+
+
+def parse_chinese_move_direction(piece, from_row, to_row, from_col, to_col):
+    """
+    Phân tích hướng di chuyển theo kiểu Trung Quốc
+
+    Returns:
+        tuple: (move_type, value) - ("tấn"/"thoái"/"bình", số_bước/vị_trí_đích)
+    """
+    if from_col == to_col:
+        # Di chuyển thẳng
+        if piece.isupper():  # Quân đỏ
+            if to_row < from_row:
+                return "tấn", from_row - to_row
+            else:
+                return "thoái", to_row - from_row
+        else:  # Quân đen
+            if to_row > from_row:
+                return "tấn", to_row - from_row
+            else:
+                return "thoái", from_row - to_row
+    else:
+        # Di chuyển ngang
+        if piece.isupper():  # Quân đỏ
+            return "bình", 9 - to_col
+        else:  # Quân đen
+            return "bình", to_col + 1

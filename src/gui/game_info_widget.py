@@ -198,6 +198,16 @@ class GameInfoWidget(QWidget):
         self.current_turn_label.setText("Đỏ")
         self.current_turn_label.setStyleSheet("font-weight: bold; color: red")
 
+    def clear_moves(self):
+        """Xóa danh sách nước đi nhưng giữ lại thông tin khác"""
+        self.moves_list.clear()
+        self.move_count = 0
+        self.move_count_label.setText("0")
+        # Reset về lượt đỏ
+        self.current_turn_label.setText("Đỏ")
+        self.current_turn_label.setStyleSheet("font-weight: bold; color: red")
+        self.current_player_timer = True
+
         # Reset engine analysis với safe check
         self.evaluation_label.setText("0.00")
         self.evaluation_label.setStyleSheet(
