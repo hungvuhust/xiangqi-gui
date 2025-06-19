@@ -4,6 +4,15 @@ Main Window cho Xiangqi GUI
 Cửa sổ chính chứa bàn cờ và các controls
 """
 
+from ..utils.constants import *
+from ..core.game_state import GameState
+from .dialogs import FenDialog
+from .setup_widget import SetupWidget
+from .multi_engine_widget import MultiEngineWidget
+from .game_info_widget import GameInfoWidget
+from .board_widget import BoardWidget
+import sys
+import os
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QMenuBar, QMenu, QAction, QStatusBar, QToolBar,
                              QLabel, QPushButton, QTextEdit, QSplitter,
@@ -12,13 +21,10 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer
 from PyQt5.QtGui import QIcon, QFont, QKeySequence
 
-from .board_widget import BoardWidget
-from .game_info_widget import GameInfoWidget
-from .multi_engine_widget import MultiEngineWidget
-from .setup_widget import SetupWidget
-from .dialogs import FenDialog
-from ..core.game_state import GameState
-from ..utils.constants import *
+# Thêm parent directory vào path để import được các modules
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, parent_dir)
 
 
 class MainWindow(QMainWindow):
@@ -29,11 +35,37 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.game_state = GameState()
-        self.chinese_move_notation = True  # Flag để sử dụng ký hiệu Trung Quốc
 
+        # Khởi tạo game state
+        self.game_state = GameState()
+
+        # Settings
+        self.chinese_coords = True  # Mặc định dùng tọa độ Trung Quốc
+        self.chinese_move_notation = True  # Mặc định dùng ký hiệu Trung Quốc
+
+        # Khởi tạo ROS controller
+        self.ros_controller = None
+        self._init_ros_controller()
+
+        # Setup UI
         self.init_ui()
         self.setup_connections()
+
+    def _init_ros_controller(self):
+        """Khởi tạo ROS controller nếu có thể"""
+        try:
+            from ..ros.ros_controller import RosController
+            self.ros_controller = RosController(self)
+            # Connect signal để đồng bộ position
+            self.ros_controller.position_updated.connect(
+                self.on_ros_position_changed)
+            print("🚀 ROS controller initialized")
+        except ImportError:
+            print("⚠️  ROS2 not available - running without ROS integration")
+            self.ros_controller = None
+        except Exception as e:
+            print(f"❌ ROS controller init error: {e}")
+            self.ros_controller = None
 
     def init_ui(self):
         """Khởi tạo giao diện"""
@@ -283,6 +315,31 @@ class MainWindow(QMainWindow):
         self.coords_action = toggle_coords_action
         self.move_notation_action = toggle_move_notation_action
 
+        # Menu ROS
+        if self.ros_controller:
+            ros_menu = menubar.addMenu('&ROS')
+
+            # Start ROS service action
+            start_ros_action = QAction('🚀 &Start ROS Service', self)
+            start_ros_action.setStatusTip(
+                'Khởi động ROS service để expose FEN')
+            start_ros_action.triggered.connect(self.start_ros_service)
+            ros_menu.addAction(start_ros_action)
+
+            # Stop ROS service action
+            stop_ros_action = QAction('🛑 &Stop ROS Service', self)
+            stop_ros_action.setStatusTip('Dừng ROS service')
+            stop_ros_action.triggered.connect(self.stop_ros_service)
+            ros_menu.addAction(stop_ros_action)
+
+            ros_menu.addSeparator()
+
+            # Service info action
+            info_ros_action = QAction('ℹ️  Service &Info', self)
+            info_ros_action.setStatusTip('Hiển thị thông tin ROS service')
+            info_ros_action.triggered.connect(self.show_ros_info)
+            ros_menu.addAction(info_ros_action)
+
         # Menu Help
         help_menu = menubar.addMenu('&Trợ Giúp')
 
@@ -361,8 +418,19 @@ class MainWindow(QMainWindow):
                 # Show last 3 moves
                 print(f"📝 Latest moves: {engine_moves[-3:]}")
             self.position_changed_signal.emit(current_fen, engine_moves)
+
+            # Sync với ROS nếu có
+            self._sync_with_ros(current_fen)
         else:
             print(f"❌ [SIGNAL] Cannot emit - no FEN available")
+
+    def _sync_with_ros(self, fen_string):
+        """Đồng bộ position với ROS service"""
+        if self.ros_controller and self.ros_controller.is_running:
+            try:
+                self.ros_controller.update_position_in_ros(fen_string)
+            except Exception as e:
+                print(f"❌ ROS sync error: {e}")
 
     def new_game(self):
         """Bắt đầu ván mới"""
@@ -595,7 +663,7 @@ class MainWindow(QMainWindow):
                 # Clear engine hint
                 self.board_widget.clear_engine_hint()
 
-                # Update position cho multi-engine widget
+                # Update position cho multi-engine
                 self._emit_position_changed()
 
                 self.update_status("✓ Đã load position từ FEN")
@@ -969,3 +1037,55 @@ class MainWindow(QMainWindow):
                 # Fallback: sync board state trực tiếp
                 self.setup_widget.set_board_state(self.game_state.board)
                 self.update_status("🎯 Đã chuyển sang chế độ xếp cờ")
+
+    def on_ros_position_changed(self, fen, moves):
+        """Xử lý khi position thay đổi từ ROS"""
+        print(f"🚀 ROS position changed: {fen}, {moves}")
+
+        # Update game state
+        self.game_state.load_from_fen(fen)
+
+        # Đồng bộ board với game state
+        self.board_widget.board_state = [row[:]
+                                         for row in self.game_state.board]
+        self.board_widget.set_current_player(self.game_state.current_player)
+        self.board_widget.selected_square = None
+        self.board_widget.possible_moves = []
+        self.board_widget.update()
+
+        # Reset UI
+        self.game_info_widget.reset()
+        self.game_info_widget.set_current_player(
+            self.game_state.current_player)
+        self.update_turn_label()
+
+        self.update_status("🚀 Đã nhận được position từ ROS")
+
+        # Emit position changed để update multi-engine
+        self._emit_position_changed()
+
+    def start_ros_service(self):
+        """Khởi động ROS service"""
+        if self.ros_controller:
+            self.ros_controller.start_service()
+            self.update_status("🚀 ROS service đã được khởi động")
+        else:
+            self.update_status(
+                "⚠️  ROS2 not available - cannot start ROS service")
+
+    def stop_ros_service(self):
+        """Dừng ROS service"""
+        if self.ros_controller:
+            self.ros_controller.stop_service()
+            self.update_status("🛑 ROS service đã được dừng")
+        else:
+            self.update_status(
+                "⚠️  ROS2 not available - cannot stop ROS service")
+
+    def show_ros_info(self):
+        """Hiển thị thông tin ROS service"""
+        if self.ros_controller:
+            self.ros_controller.show_info()
+        else:
+            self.update_status(
+                "⚠️  ROS2 not available - cannot show ROS service info")

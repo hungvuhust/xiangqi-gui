@@ -2,4 +2,9 @@ PyQt5==5.15.9
 PyQt5-tools==5.15.9.3.3
 python-chess==1.999
 configparser==6.0.0
-PyQtWebEngine==5.15.6 
+PyQtWebEngine==5.15.6
+Pillow==10.0.0
+# ROS2 dependencies (optional - install via rosdep if using ROS2)
+# rclpy
+# std_msgs  
+# std_srvs 
