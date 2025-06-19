@@ -505,20 +505,22 @@ class BoardWidget(QWidget):
                     temp_game_state.current_player = self.current_player
 
                     if temp_game_state.is_valid_move(from_row, from_col, row, col):
-                        # Thực hiện nước đi
+                        # Không modify board_state ở đây, để GameState xử lý
                         piece = self.board_state[from_row][from_col]
                         captured_piece = self.board_state[row][col]
 
-                        self.board_state[row][col] = piece
-                        self.board_state[from_row][from_col] = None
-
                         print(
-                            f"✓ Di chuyển {piece} từ ({from_row},{from_col}) đến ({row},{col})")
+                            f"✓ Validation OK: {piece} từ ({from_row},{from_col}) đến ({row},{col})")
                         if captured_piece:
-                            print(f"✓ Bắt quân {captured_piece}")
+                            print(f"✓ Sẽ bắt quân {captured_piece}")
 
-                        # Emit signal cho main window
+                        # Emit signal cho main window để GameState xử lý thực sự
+                        print(
+                            f"🚨 DEBUG: About to emit move_made signal - ({from_row},{from_col}) → ({row},{col})")
+                        print(
+                            f"🚨 DEBUG: BoardWidget current_player before emit: {self.current_player}")
                         self.move_made.emit(from_row, from_col, row, col)
+                        print(f"🚨 DEBUG: move_made signal emitted successfully")
 
                         # Clear selection
                         self.selected_square = None
@@ -526,6 +528,8 @@ class BoardWidget(QWidget):
                     else:
                         print(
                             f"❌ Nước đi không hợp lệ từ ({from_row},{from_col}) đến ({row},{col})")
+                        print(
+                            f"🚨 DEBUG: BoardWidget validation failed. current_player: {self.current_player}")
 
                         # Nếu click vào quân khác của mình, chuyển selection
                         piece = self.board_state[row][col]
@@ -762,7 +766,7 @@ class BoardWidget(QWidget):
         temp_game_state = GameState()
         if temp_game_state.load_from_fen(fen_string):
             # Update board state
-            self.board_state = temp_game_state.get_board()
+            self.board_state = temp_game_state.board
 
             # Clear selection
             self.selected_square = None
@@ -1246,7 +1250,7 @@ class BoardWidget(QWidget):
             'magenta': QColor(255, 0, 255)
         }
 
-        offset_step = 8  # Offset mỗi arrow để tránh chồng lấp
+        offset_step = 1  # Offset mỗi arrow để tránh chồng lấp
         engine_index = 0
 
         for engine_name, arrows in self.multi_engine_arrows.items():
@@ -1374,10 +1378,10 @@ class BoardWidget(QWidget):
         dy /= length
 
         # Shorten arrow để không vẽ lên quân cờ
-        from_x += dx * 15
-        from_y += dy * 15
-        to_x -= dx * 15
-        to_y -= dy * 15
+        from_x += dx
+        from_y += dy
+        to_x -= dx
+        to_y -= dy
 
         # Vẽ shaft
         painter.drawLine(int(from_x), int(from_y), int(to_x), int(to_y))
@@ -1430,77 +1434,4 @@ class BoardWidget(QWidget):
             # Text color
             text_color = QColor(0, 0, 0, 255 if is_current_turn else 180)
             painter.setPen(QPen(text_color))
-            painter.drawText(text_rect, Qt.AlignCenter, short_label)
-
-    def _draw_multi_arrow(self, painter, from_x, from_y, to_x, to_y, color, label=None):
-        """Vẽ mũi tên multi-engine với label"""
-        # Set pen và brush
-        pen = QPen(color, 2)
-        painter.setPen(pen)
-        painter.setBrush(QBrush(color))
-
-        # Tính vector direction
-        import math
-        dx = to_x - from_x
-        dy = to_y - from_y
-        length = math.sqrt(dx*dx + dy*dy)
-
-        if length < 10:  # Quá ngắn
-            return
-
-        # Normalize
-        dx /= length
-        dy /= length
-
-        # Shorten arrow để không vẽ lên quân cờ
-        from_x += dx * 15
-        from_y += dy * 15
-        to_x -= dx * 15
-        to_y -= dy * 15
-
-        # Vẽ shaft
-        painter.drawLine(int(from_x), int(from_y), int(to_x), int(to_y))
-
-        # Vẽ arrowhead nhỏ
-        arrow_length = 10
-        arrow_angle = 0.5
-
-        # Arrowhead points
-        ax1 = to_x - arrow_length * \
-            (dx * math.cos(arrow_angle) - dy * math.sin(arrow_angle))
-        ay1 = to_y - arrow_length * \
-            (dy * math.cos(arrow_angle) + dx * math.sin(arrow_angle))
-
-        ax2 = to_x - arrow_length * \
-            (dx * math.cos(-arrow_angle) - dy * math.sin(-arrow_angle))
-        ay2 = to_y - arrow_length * \
-            (dy * math.cos(-arrow_angle) + dx * math.sin(-arrow_angle))
-
-        # Draw arrowhead
-        points = [QPoint(int(to_x), int(to_y)),
-                  QPoint(int(ax1), int(ay1)),
-                  QPoint(int(ax2), int(ay2))]
-
-        from PyQt5.QtGui import QPolygon
-        painter.drawPolygon(QPolygon(points))
-
-        # Draw label nếu có
-        if label and len(label) > 0:
-            # Vị trí label ở giữa arrow
-            label_x = (from_x + to_x) / 2
-            label_y = (from_y + to_y) / 2 - 12
-
-            # Short label (first few characters)
-            short_label = label[:6] if len(label) > 6 else label
-
-            font = QFont("Arial", 7, QFont.Bold)
-            painter.setFont(font)
-
-            # Text background
-            text_rect = painter.fontMetrics().boundingRect(short_label)
-            text_rect.moveCenter(QPoint(int(label_x), int(label_y)))
-            text_rect.adjust(-1, 0, 1, 0)
-
-            painter.fillRect(text_rect, QBrush(QColor(255, 255, 255, 220)))
-            painter.setPen(QPen(QColor(0, 0, 0)))
             painter.drawText(text_rect, Qt.AlignCenter, short_label)

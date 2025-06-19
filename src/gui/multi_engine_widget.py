@@ -467,8 +467,8 @@ class MultiEngineWidget(QWidget):
             return
 
         # Màu sắc cố định cho từng engine (giữ nguyên màu)
-        base_colors = ['red', 'blue', 'green', 'orange',
-                       'purple', 'brown', 'cyan', 'magenta']
+        base_colors = ['cyan', 'blue', 'green', 'orange',
+                       'purple', 'brown', 'red', 'magenta']
 
         for i, (engine_name, result) in enumerate(results.items()):
             engine_arrows = []
@@ -502,7 +502,7 @@ class MultiEngineWidget(QWidget):
                     'to': to_pos,
                     'color': base_color,
                     'style': 'dashed',
-                    'opacity': 0.6,
+                    'opacity': 0.8,
                     'is_current_turn': False
                 })
 

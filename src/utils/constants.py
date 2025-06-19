@@ -14,6 +14,7 @@ BOARD_HEIGHT = 10  # 10 hàng
 BOARD_SVG_WIDTH = 900  # Revert về 900
 BOARD_SVG_HEIGHT = 1000  # Revert về 1000
 BOARD_SCALE_FACTOR = 0.7
+BOARD_SCALE_FACTOR_SETUP = 0.4
 
 # UI scaling factor (để scale down cho canvas nhỏ như trong ảnh tham khảo)
 UI_SCALE_FACTOR = 0.75

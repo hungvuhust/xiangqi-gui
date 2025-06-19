@@ -86,33 +86,46 @@ class GameState:
         return board
 
     def to_fen(self):
-        """Chuyển đổi board state thành FEN string"""
-        fen_rows = []
+        """
+        Chuyển game state hiện tại thành FEN string
 
-        for row in range(BOARD_HEIGHT):
-            fen_row = ""
-            empty_count = 0
+        Returns:
+            str: FEN notation
+        """
+        try:
+            # Build board part
+            fen_parts = []
+            for row in self.board:
+                rank_str = ""
+                empty_count = 0
 
-            for col in range(BOARD_WIDTH):
-                piece = self.board[row][col]
-                if piece is None:
-                    empty_count += 1
-                else:
-                    if empty_count > 0:
-                        fen_row += str(empty_count)
-                        empty_count = 0
-                    fen_row += piece
+                for piece in row:
+                    if piece is None:
+                        empty_count += 1
+                    else:
+                        if empty_count > 0:
+                            rank_str += str(empty_count)
+                            empty_count = 0
+                        rank_str += piece
 
-            if empty_count > 0:
-                fen_row += str(empty_count)
+                # Thêm empty squares cuối rank
+                if empty_count > 0:
+                    rank_str += str(empty_count)
 
-            fen_rows.append(fen_row)
+                fen_parts.append(rank_str)
 
-        board_fen = "/".join(fen_rows)
+            board_fen = "/".join(fen_parts)
 
-        # Thêm thông tin bổ sung (player, castling, en passant, etc.)
-        player = "w" if self.current_player == "red" else "b"
-        return f"{board_fen} {player}"
+            # Map current_player sang active_color cho FEN
+            active_color = 'w' if self.current_player == 'red' else 'b'
+
+            # Build complete FEN
+            fen = f"{board_fen} {active_color}"
+            return fen
+
+        except Exception as e:
+            print(f"❌ Lỗi generate FEN: {e}")
+            return None
 
     def is_valid_move(self, from_row, from_col, to_row, to_col):
         """
@@ -346,8 +359,12 @@ class GameState:
         self.board[from_row][from_col] = None
 
         # Chuyển lượt
+        old_player = self.current_player
         self.current_player = 'black' if self.current_player == 'red' else 'red'
         self.active_color = 'b' if self.active_color == 'w' else 'w'
+
+        print(
+            f"🔄 DEBUG: make_move() - Switch turn: {old_player} → {self.current_player}")
 
         # Update move history
         move_notation = f"{chr(ord('a') + from_col)}{from_row}{chr(ord('a') + to_col)}{to_row}"
@@ -571,10 +588,18 @@ class GameState:
             # Parse các thông tin khác nếu có
             if len(parts) >= 2:
                 self.active_color = parts[1]  # 'w' hoặc 'b'
+                # Map active_color sang current_player
+                if self.active_color == 'w':
+                    self.current_player = 'red'  # White = Red trong xiangqi
+                elif self.active_color == 'b':
+                    self.current_player = 'black'  # Black = Black
+
             if len(parts) >= 6:
                 self.fullmove_number = int(parts[5])
 
             print(f"✓ Load FEN thành công: {fen_string[:50]}...")
+            print(
+                f"✓ Active color: {self.active_color} → Current player: {self.current_player}")
             return True
 
         except Exception as e:
@@ -624,45 +649,6 @@ class GameState:
 
         except Exception as e:
             print(f"❌ Lỗi parse board FEN: {e}")
-            return None
-
-    def to_fen(self):
-        """
-        Chuyển game state hiện tại thành FEN string
-
-        Returns:
-            str: FEN notation
-        """
-        try:
-            # Build board part
-            fen_parts = []
-            for row in self.board:
-                rank_str = ""
-                empty_count = 0
-
-                for piece in row:
-                    if piece is None:
-                        empty_count += 1
-                    else:
-                        if empty_count > 0:
-                            rank_str += str(empty_count)
-                            empty_count = 0
-                        rank_str += piece
-
-                # Thêm empty squares cuối rank
-                if empty_count > 0:
-                    rank_str += str(empty_count)
-
-                fen_parts.append(rank_str)
-
-            board_fen = "/".join(fen_parts)
-
-            # Build complete FEN
-            fen = f"{board_fen} {self.active_color}"
-            return fen
-
-        except Exception as e:
-            print(f"❌ Lỗi generate FEN: {e}")
             return None
 
     def _create_initial_board(self):
