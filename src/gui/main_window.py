@@ -7,12 +7,14 @@ Cửa sổ chính chứa bàn cờ và các controls
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QMenuBar, QMenu, QAction, QStatusBar, QToolBar,
                              QLabel, QPushButton, QTextEdit, QSplitter,
-                             QMessageBox, QApplication, QDesktopWidget, QFileDialog)
+                             QMessageBox, QApplication, QDesktopWidget, QFileDialog,
+                             QTabWidget, QScrollArea)
 from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer
 from PyQt5.QtGui import QIcon, QFont, QKeySequence
 
 from .board_widget import BoardWidget
 from .game_info_widget import GameInfoWidget
+from .multi_engine_widget import MultiEngineWidget
 from .dialogs import FenDialog
 from ..core.game_state import GameState
 from ..engine.ucci_protocol import UCCIEngineManager
@@ -25,6 +27,7 @@ class MainWindow(QMainWindow):
     # Signals để thread-safe communication
     engine_bestmove_signal = pyqtSignal(str)
     engine_info_signal = pyqtSignal(str)
+    position_changed_signal = pyqtSignal(str, list)  # fen, moves
 
     def __init__(self):
         super().__init__()
@@ -40,8 +43,9 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         """Khởi tạo giao diện"""
         self.setWindowTitle("Xiangqi GUI - Cờ Tướng")
-        self.setMinimumSize(1000, 700)  # Kích thước tối thiểu
-        self.resize(1200, 800)  # Kích thước mặc định
+        # Kích thước phù hợp với layout nhỏ gọn như ảnh tham khảo
+        self.setMinimumSize(1000, 820)
+        self.resize(1200, 820)  # Kích thước mặc định vừa phải
 
         # Center window on screen
         screen = QApplication.desktop().screenGeometry()
@@ -62,34 +66,34 @@ class MainWindow(QMainWindow):
 
         # Splitter để chia layout
         splitter = QSplitter(Qt.Horizontal)
+
         main_layout.addWidget(splitter)
 
-        # Left panel - Board
+        # Left panel - Board (thu nhỏ để dành không gian)
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(5, 5, 5, 5)
 
-        # Board widget
+        # Board widget - thu nhỏ canvas như trong ảnh
         self.board_widget = BoardWidget()
-        self.board_widget.setMinimumSize(600, 650)  # Kích thước board hợp lý
-        self.board_widget.setMaximumSize(800, 850)  # Giới hạn tối đa
+        # Fixed size để đảm bảo tỷ lệ
+        # self.board_widget.setFixedSize(
+        #     int(BOARD_SVG_WIDTH * BOARD_SCALE_FACTOR), int(BOARD_SVG_HEIGHT * BOARD_SCALE_FACTOR))
         left_layout.addWidget(self.board_widget)
 
-        # Right panel - Game info and controls
+        # Thêm stretch để board không bị kéo giãn
+        left_layout.addStretch()
+
+        # Right panel - Sử dụng TabWidget (tăng kích thước như trong ảnh)
         right_panel = QWidget()
-        right_panel.setMinimumWidth(300)  # Tối thiểu 300px cho panel phải
-        right_panel.setMaximumWidth(450)  # Tối đa 450px
+        # right_panel.setMinimumWidth(450)  # Tăng để chiếm nhiều không gian hơn
+        # right_panel.setMaximumWidth(700)  # Cho phép panel rộng hơn
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(5, 5, 5, 5)
-        right_layout.setSpacing(10)
+        right_layout.setSpacing(5)
 
-        # Game info widget
-        self.game_info_widget = GameInfoWidget()
-        right_layout.addWidget(self.game_info_widget)
-
-        # Nút controls
+        # Nút controls ở trên cùng
         controls_layout = QHBoxLayout()
-
         self.new_game_btn = QPushButton("Ván Mới")
         self.undo_btn = QPushButton("Hoàn Tác")
         self.hint_btn = QPushButton("Gợi Ý")
@@ -97,22 +101,130 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.new_game_btn)
         controls_layout.addWidget(self.undo_btn)
         controls_layout.addWidget(self.hint_btn)
-
         right_layout.addLayout(controls_layout)
 
-        # Text area để hiển thị log engine
+        # Tab Widget cho các panel khác nhau
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setTabPosition(QTabWidget.North)
+
+        # Tab 1: Game Info
+        game_info_tab = QWidget()
+        game_info_layout = QVBoxLayout(game_info_tab)
+        game_info_layout.setContentsMargins(5, 5, 5, 5)
+
+        self.game_info_widget = GameInfoWidget()
+        game_info_layout.addWidget(self.game_info_widget)
+
+        self.tab_widget.addTab(game_info_tab, "🎮 Thông Tin Ván")
+
+        # Tab 2: Multi-Engine Analysis
+        multi_engine_tab = QWidget()
+        multi_engine_layout = QVBoxLayout(multi_engine_tab)
+        multi_engine_layout.setContentsMargins(5, 5, 5, 5)
+
+        # Scroll area cho multi-engine widget
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        self.multi_engine_widget = MultiEngineWidget()
+        scroll_area.setWidget(self.multi_engine_widget)
+        multi_engine_layout.addWidget(scroll_area)
+
+        self.tab_widget.addTab(multi_engine_tab, "🤖 Multi Engine")
+
+        # Tab 3: Engine Log
+        engine_log_tab = QWidget()
+        engine_log_layout = QVBoxLayout(engine_log_tab)
+        engine_log_layout.setContentsMargins(5, 5, 5, 5)
+
         self.engine_log = QTextEdit()
-        self.engine_log.setMaximumHeight(200)
         self.engine_log.setPlaceholderText("Log giao tiếp với engine...")
-        right_layout.addWidget(QLabel("Engine Log:"))
-        right_layout.addWidget(self.engine_log)
+        self.engine_log.setFont(QFont("Consolas", 9))  # Font monospace
+        engine_log_layout.addWidget(self.engine_log)
+
+        self.tab_widget.addTab(engine_log_tab, "📋 Engine Log")
+
+        # Tab 4: Settings
+        settings_tab = QWidget()
+        settings_layout = QVBoxLayout(settings_tab)
+        settings_layout.setContentsMargins(10, 10, 10, 10)
+        settings_layout.setSpacing(15)
+
+        # Board Settings Group
+        board_group = QWidget()
+        board_group_layout = QVBoxLayout(board_group)
+
+        board_title = QLabel("🎯 Cài Đặt Bàn Cờ")
+        board_title.setFont(QFont("Arial", 10, QFont.Bold))
+        board_group_layout.addWidget(board_title)
+
+        # Flip board button
+        self.flip_board_btn = QPushButton("🔄 Lật Bàn Cờ")
+        self.flip_board_btn.clicked.connect(self.flip_board)
+        board_group_layout.addWidget(self.flip_board_btn)
+
+        # Coordinate style button
+        self.coord_style_btn = QPushButton(
+            "📍 Toggle Tọa Độ (Trung Quốc/Quốc Tế)")
+        self.coord_style_btn.clicked.connect(self.toggle_coordinate_style)
+        board_group_layout.addWidget(self.coord_style_btn)
+
+        settings_layout.addWidget(board_group)
+
+        # Move Notation Group
+        notation_group = QWidget()
+        notation_group_layout = QVBoxLayout(notation_group)
+
+        notation_title = QLabel("📝 Ký Hiệu Nước Đi")
+        notation_title.setFont(QFont("Arial", 10, QFont.Bold))
+        notation_group_layout.addWidget(notation_title)
+
+        self.notation_style_btn = QPushButton(
+            "🔤 Toggle Ký Hiệu (Trung Quốc/Quốc Tế)")
+        self.notation_style_btn.clicked.connect(
+            self.toggle_move_notation_style)
+        notation_group_layout.addWidget(self.notation_style_btn)
+
+        settings_layout.addWidget(notation_group)
+
+        # Engine Settings Group
+        engine_group = QWidget()
+        engine_group_layout = QVBoxLayout(engine_group)
+
+        engine_title = QLabel("🤖 Cài Đặt Engine")
+        engine_title.setFont(QFont("Arial", 10, QFont.Bold))
+        engine_group_layout.addWidget(engine_title)
+
+        self.toggle_analysis_btn = QPushButton("🔍 Toggle Phân Tích Liên Tục")
+        self.toggle_analysis_btn.clicked.connect(self.toggle_engine_analysis)
+        engine_group_layout.addWidget(self.toggle_analysis_btn)
+
+        self.toggle_arrows_btn = QPushButton("🏹 Toggle Mũi Tên Gợi Ý")
+        self.toggle_arrows_btn.clicked.connect(self.toggle_arrow_display)
+        engine_group_layout.addWidget(self.toggle_arrows_btn)
+
+        self.load_engine_btn = QPushButton("📁 Load Engine...")
+        self.load_engine_btn.clicked.connect(self.load_engine_dialog)
+        engine_group_layout.addWidget(self.load_engine_btn)
+
+        settings_layout.addWidget(engine_group)
+
+        # Add stretch to push everything to top
+        settings_layout.addStretch()
+
+        self.tab_widget.addTab(settings_tab, "⚙️ Cài Đặt")
+
+        # Thêm tab widget vào layout
+        right_layout.addWidget(self.tab_widget)
 
         # Add panels to splitter
         splitter.addWidget(left_panel)
         splitter.addWidget(right_panel)
 
-        # Set splitter proportions (70% board, 30% info)
-        splitter.setSizes([700, 300])
+        # Set splitter proportions (40% board, 60% info) - như trong ảnh tham khảo
+        splitter.setSizes([400, 600])
         splitter.setCollapsible(0, False)  # Board không thể collapse
         splitter.setCollapsible(1, False)  # Info panel không thể collapse
 
@@ -186,15 +298,7 @@ class MainWindow(QMainWindow):
         self.arrow_action = toggle_hints_action
 
         # Protocol selection
-        protocol_action = QAction('&UCCI Protocol', self)
-        protocol_action.setCheckable(True)
-        protocol_action.setChecked(True)  # Mặc định UCCI cho cờ tướng
-        protocol_action.setStatusTip('Chọn UCCI (cờ tướng) hoặc UCI (cờ vua)')
-        protocol_action.triggered.connect(self.toggle_protocol)
-        engine_menu.addAction(protocol_action)
-
-        # Lưu reference để sử dụng trong các method khác
-        self.protocol_action = protocol_action
+        # Protocol auto-detection (không cần toggle nữa)
 
         # Menu View
         view_menu = menubar.addMenu('&Hiển Thị')
@@ -280,6 +384,19 @@ class MainWindow(QMainWindow):
         self.board_widget.square_clicked.connect(self.on_square_clicked)
         self.board_widget.move_made.connect(self.on_move_made)
 
+        # Multi-engine connections
+        self.multi_engine_widget.hint_selected.connect(
+            self.on_multi_engine_hint_selected)
+        self.multi_engine_widget.engine_arrows_changed.connect(
+            self.on_multi_engine_arrows_changed)
+
+        # Kết nối signal position changed để tự động cập nhật multi-engine
+        self.position_changed_signal.connect(
+            self.multi_engine_widget.set_position)
+        print(
+            f"🔗 [SETUP] Connected position_changed_signal to multi_engine_widget.set_position")
+        print(f"🔗 [SETUP] Signal connection completed")
+
         # Kết nối button signals
         self.new_game_btn.clicked.connect(self.new_game)
         self.undo_btn.clicked.connect(self.undo_move)
@@ -288,6 +405,26 @@ class MainWindow(QMainWindow):
         # Kết nối engine signals (thread-safe)
         self.engine_bestmove_signal.connect(self.handle_engine_bestmove)
         self.engine_info_signal.connect(self.handle_engine_info)
+
+        # Set initial position cho multi-engine widget
+        self._emit_position_changed()
+
+        # Bật lại arrow display
+        self.arrow_action.setChecked(True)
+
+    def _emit_position_changed(self):
+        """Emit signal khi position thay đổi"""
+        current_fen = self.game_state.to_fen()
+        if current_fen:
+            engine_moves = self.convert_moves_to_engine_notation(
+                self.game_state.move_history)
+            print(f"📡 Position changed: {len(engine_moves)} moves")
+            if engine_moves:
+                # Show last 3 moves
+                print(f"📝 Latest moves: {engine_moves[-3:]}")
+            self.position_changed_signal.emit(current_fen, engine_moves)
+        else:
+            print(f"❌ [SIGNAL] Cannot emit - no FEN available")
 
     def new_game(self):
         """Bắt đầu ván cờ mới"""
@@ -348,6 +485,12 @@ class MainWindow(QMainWindow):
                 self.update_status("✓ Ván cờ mới đã bắt đầu - Lượt của Đỏ")
         else:
             self.update_status("✓ Ván cờ mới đã bắt đầu - Lượt của Đỏ")
+
+        # Update position cho multi-engine widget với starting position
+        self._emit_position_changed()
+
+        # Bật lại arrow display
+        self.arrow_action.setChecked(True)
 
     def load_engine(self):
         """Tải engine từ file"""
@@ -427,16 +570,19 @@ class MainWindow(QMainWindow):
             # Check for game end conditions
             self.check_game_end()
 
-            # Send move to engine
+            # Update position cho multi-engine widget (luôn cập nhật bất kể có engine thường hay không)
+            self._emit_position_changed()
+
+            # Send move to engine (chỉ khi có engine thường)
             if self.engine_manager.get_current_engine():
                 engine = self.engine_manager.get_current_engine()
 
                 # Update position với move history
                 current_fen = self.game_state.to_fen()
+                engine_moves = self.convert_moves_to_engine_notation(
+                    self.game_state.move_history)
+
                 if current_fen:
-                    # Convert moves từ board notation sang engine notation
-                    engine_moves = self.convert_moves_to_engine_notation(
-                        self.game_state.move_history)
                     engine.set_position(current_fen, engine_moves)
 
                 # Nếu analysis mode bật, phân tích position mới
@@ -670,6 +816,9 @@ class MainWindow(QMainWindow):
                         self.ignore_engine_info = True
                         QTimer.singleShot(100, lambda: self.start_new_analysis(
                             engine, current_fen, engine_moves))
+
+                # Update position cho multi-engine widget
+                self._emit_position_changed()
             else:
                 self.update_status("❌ Không thể hoàn tác")
         else:
@@ -719,6 +868,9 @@ class MainWindow(QMainWindow):
                         self.ignore_engine_info = True
                         QTimer.singleShot(100, lambda: self.start_new_analysis(
                             engine, current_fen, engine_moves))
+
+                # Update position cho multi-engine widget
+                self._emit_position_changed()
             else:
                 self.update_status("❌ Không thể làm lại nước đi")
         else:
@@ -817,6 +969,9 @@ class MainWindow(QMainWindow):
 
                             # Set position từ FEN
                             engine.set_position(fen)
+
+                # Update position cho multi-engine widget
+                self._emit_position_changed()
 
                 self.update_status(
                     "✓ Đã load position từ FEN - Engine đã được restart")
@@ -982,8 +1137,10 @@ class MainWindow(QMainWindow):
             list: Moves trong engine notation
         """
         engine_moves = []
+        print(
+            f"🔄 Converting {len(board_moves)} board moves to engine notation")
 
-        for move in board_moves:
+        for i, move in enumerate(board_moves):
             if len(move) == 4:
                 # Parse board move: e.g., "a9b8" (board notation)
                 from_file = move[0]
@@ -1000,6 +1157,10 @@ class MainWindow(QMainWindow):
                 engine_move = f"{from_file}{engine_from_rank}{to_file}{engine_to_rank}"
                 engine_moves.append(engine_move)
 
+                if i < 3 or i >= len(board_moves) - 3:  # Show first 3 and last 3
+                    print(f"📝 Move {i+1}: {move} -> {engine_move}")
+
+        print(f"✅ Converted to {len(engine_moves)} engine moves")
         return engine_moves
 
     def get_hint(self):
@@ -1051,33 +1212,6 @@ class MainWindow(QMainWindow):
             # Bắt đầu analysis mới
             engine.go_infinite()
             print(f"🔍 Bắt đầu analysis mới cho position: {current_fen}")
-
-    def toggle_protocol(self):
-        """Toggle protocol between UCCI and UCI"""
-        is_ucci = self.protocol_action.isChecked()
-
-        if is_ucci:
-            protocol_name = "UCCI"
-            game_type = "cờ tướng"
-        else:
-            protocol_name = "UCI"
-            game_type = "cờ vua"
-
-        # Dừng engine hiện tại nếu có
-        if self.engine_manager.get_current_engine():
-            engine = self.engine_manager.get_current_engine()
-            engine.stop_search()
-            # Clear arrows
-            self.board_widget.clear_engine_hint()
-
-        # Cập nhật protocol trong engine manager
-        self.engine_manager.set_protocol(protocol_name.lower())
-
-        self.update_status(
-            f"🔄 Đã chuyển sang protocol {protocol_name} cho {game_type}")
-
-        # Cập nhật text của menu item
-        self.protocol_action.setText(f"&{protocol_name} Protocol")
 
     def flip_board(self):
         """Lật bàn cờ để xem từ góc nhìn đối phương"""
@@ -1208,85 +1342,30 @@ class MainWindow(QMainWindow):
             print(f"Lỗi get piece from history: {e}")
             return None
 
-    def format_move_for_display(self, move, move_index=None):
-        """
-        Format move cho hiển thị dựa trên style đã chọn
+    def on_multi_engine_hint_selected(self, engine_name: str, move: str):
+        """Xử lý khi user chọn hint từ multi-engine"""
+        print(f"🎯 Chọn gợi ý từ {engine_name}: {move}")
 
-        Args:
-            move: Move notation (e.g., "e0e1")
-            move_index: Index của move trong history (để xác định quân cờ)
+        # Highlight move trên board
+        if len(move) >= 4:
+            from_pos = move[:2]
+            to_pos = move[2:4]
 
-        Returns:
-            str: Formatted move
-        """
-        if self.chinese_move_notation and move_index is not None:
-            # Kiểu Trung Quốc: cần thông tin về quân cờ đã di chuyển
-            return self.format_move_chinese_from_history(move, move_index)
-        else:
-            # Kiểu quốc tế
-            return self.format_move_notation(move, is_engine_notation=False)
+            # Convert sang board coordinates
+            from_coords = self.board_widget._pos_to_coords(from_pos)
+            to_coords = self.board_widget._pos_to_coords(to_pos)
 
-    def format_move_chinese_from_history(self, move, move_index):
-        """
-        Format move theo kiểu Trung Quốc từ history
-        """
-        try:
-            # Parse move notation
-            if len(move) != 4:
-                return move
+            if from_coords and to_coords:
+                from_row, from_col = from_coords
+                to_row, to_col = to_coords
 
-            from_col = ord(move[0]) - ord('a')
-            from_row = int(move[1])
-            to_col = ord(move[2]) - ord('a')
-            to_row = int(move[3])
+                # Set engine hint để highlight
+                self.board_widget.set_engine_hint(
+                    (from_row, from_col, to_row, to_col))
 
-            # Xác định quân cờ đã di chuyển từ history
-            # Cần replay lại moves để biết quân gì đã di chuyển
-            piece = self.get_piece_from_move_history(
-                move_index, from_row, from_col)
-            if piece:
-                # Xác định player từ move index
-                current_player = 'red' if move_index % 2 == 0 else 'black'
+                self.update_status(f"🤖 Gợi ý từ {engine_name}: {move}")
 
-                # Sử dụng function từ constants.py
-                from ..utils.constants import format_move_chinese_style
-                return format_move_chinese_style(piece, from_row, from_col, to_row, to_col, current_player)
-            else:
-                # Fallback về notation cũ
-                return self.format_move_notation(move, is_engine_notation=False)
-
-        except Exception as e:
-            print(f"Lỗi format move Chinese: {e}")
-            return self.format_move_notation(move, is_engine_notation=False)
-
-    def get_piece_from_move_history(self, move_index, from_row, from_col):
-        """
-        Lấy quân cờ đã di chuyển từ history bằng cách replay moves
-        """
-        try:
-            # Tạo temporary game state để replay
-            from ..core.game_state import GameState
-            temp_game = GameState()
-
-            # Replay tất cả moves cho đến move_index
-            for i in range(move_index + 1):
-                if i < len(self.game_state.move_history):
-                    move = self.game_state.move_history[i]
-                    if len(move) == 4:
-                        move_from_col = ord(move[0]) - ord('a')
-                        move_from_row = int(move[1])
-                        move_to_col = ord(move[2]) - ord('a')
-                        move_to_row = int(move[3])
-
-                        if i == move_index:
-                            # Đây là move chúng ta quan tâm
-                            return temp_game.board[move_from_row][move_from_col]
-                        else:
-                            # Replay move này
-                            temp_game.make_move(
-                                move_from_row, move_from_col, move_to_row, move_to_col)
-
-            return None
-        except Exception as e:
-            print(f"Lỗi get piece from history: {e}")
-            return None
+    def on_multi_engine_arrows_changed(self, arrows_data: dict):
+        """Xử lý khi multi-engine arrows thay đổi"""
+        # Update board widget với arrows mới
+        self.board_widget.set_multi_engine_arrows(arrows_data)

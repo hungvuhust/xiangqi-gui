@@ -34,6 +34,9 @@ class BoardWidget(QWidget):
         # Tuple (from_row, from_col, to_row, to_col) cho ponder move
         self.engine_ponder = None
 
+        # Multi-engine arrows
+        self.multi_engine_arrows = {}  # {engine_name: [(from, to, color)]}
+
         # SVG pixmaps cache
         self.board_pixmap = None
         self.piece_pixmaps = {}
@@ -45,9 +48,11 @@ class BoardWidget(QWidget):
     def init_ui(self):
         """Khởi tạo UI"""
         # Tính kích thước widget dựa trên SVG + space cho coordinates
-        coordinate_margin = 40  # Extra space cho coordinates ở 4 phía
-        widget_width = BOARD_SVG_WIDTH + 2 * BOARD_MARGIN + coordinate_margin
-        widget_height = BOARD_SVG_HEIGHT + 2 * BOARD_MARGIN + coordinate_margin
+        coordinate_margin = 5  # Extra space cho coordinates ở 4 phía
+        widget_width = int((BOARD_SVG_WIDTH * BOARD_SCALE_FACTOR +
+                            2 * BOARD_MARGIN + coordinate_margin))
+        widget_height = int((BOARD_SVG_HEIGHT * BOARD_SCALE_FACTOR +
+                             2 * BOARD_MARGIN + coordinate_margin))
 
         self.setMinimumSize(widget_width, widget_height)
         # Cho phép scale lên
@@ -143,6 +148,9 @@ class BoardWidget(QWidget):
         # Vẽ ponder move arrow
         self._draw_engine_ponder(painter)
 
+        # Vẽ multi-engine arrows
+        self._draw_multi_engine_arrows(painter)
+
         # Vẽ coordinates ở 4 phía bàn cờ
         self._draw_coordinates(painter)
 
@@ -193,10 +201,6 @@ class BoardWidget(QWidget):
 
             painter.drawPixmap(target_rect, scaled_pixmap)
 
-            # Vẽ text overlay nếu text trong SVG bị sai
-            ENABLE_TEXT_OVERLAY = False  # Set False nếu SVG text đã đúng
-            if ENABLE_TEXT_OVERLAY:
-                self._draw_river_text_overlay(painter, target_rect)
         else:
             # Fallback - vẽ bàn cờ cơ bản nếu không có SVG
             self._actual_board_rect = self._get_board_rect()
@@ -570,10 +574,38 @@ class BoardWidget(QWidget):
         return f"{chr(ord('a') + col)}{row}"
 
     def _pos_to_coords(self, pos):
-        """Chuyển đổi position string thành tọa độ"""
-        col = ord(pos[0]) - ord('a')
-        row = int(pos[1])
-        return row, col
+        """
+        Chuyển đổi position string thành tọa độ board
+
+        Args:
+            pos: Position string như "e2" (UCI format)
+
+        Returns:
+            tuple: (row, col) trong board coordinates
+        """
+        if len(pos) != 2:
+            return None
+
+        try:
+            # File: a-i (cột 0-8)
+            col = ord(pos[0]) - ord('a')
+
+            # Rank: 0-9 trong UCI cần đảo ngược thành board coordinates
+            # UCI rank 0 (đỏ) = board row 9
+            # UCI rank 9 (đen) = board row 0
+            rank = int(pos[1])
+            row = 9 - rank
+
+            # Validate coordinates
+            if 0 <= row < BOARD_HEIGHT and 0 <= col < BOARD_WIDTH:
+                return row, col
+            else:
+                print(f"❌ Invalid coordinates for {pos}: row={row}, col={col}")
+                return None
+
+        except (ValueError, IndexError) as e:
+            print(f"❌ Error parsing position {pos}: {e}")
+            return None
 
     def get_possible_moves(self, row, col):
         """
@@ -1178,3 +1210,297 @@ class BoardWidget(QWidget):
                 0, display_col_bottom, board_rect)
             bottom_y = board_rect.bottom() + 20
             painter.drawText(int(pixel_x_bottom - 5), int(bottom_y), col_num)
+
+    def set_multi_engine_arrows(self, arrows_data: dict):
+        """
+        Đặt mũi tên từ nhiều engine với style mới
+
+        Args:
+            arrows_data: {engine_name: [{'from': pos, 'to': pos, 'color': str, 'style': str, 'opacity': float, ...}]}
+        """
+        self.multi_engine_arrows = arrows_data.copy()
+        self.update()
+
+    def clear_multi_engine_arrows(self):
+        """Xóa tất cả mũi tên multi-engine"""
+        self.multi_engine_arrows.clear()
+        self.update()
+
+    def _draw_multi_engine_arrows(self, painter):
+        """Vẽ mũi tên từ nhiều engine với màu và style khác nhau"""
+        if not self.multi_engine_arrows:
+            return
+
+        board_rect = getattr(self, '_actual_board_rect',
+                             self._get_board_rect())
+
+        # Color mapping với alpha channel
+        color_map = {
+            'red': QColor(255, 0, 0),
+            'blue': QColor(0, 0, 255),
+            'green': QColor(0, 200, 0),
+            'orange': QColor(255, 165, 0),
+            'purple': QColor(128, 0, 128),
+            'brown': QColor(165, 42, 42),
+            'cyan': QColor(0, 255, 255),
+            'magenta': QColor(255, 0, 255)
+        }
+
+        offset_step = 8  # Offset mỗi arrow để tránh chồng lấp
+        engine_index = 0
+
+        for engine_name, arrows in self.multi_engine_arrows.items():
+            for arrow_info in arrows:
+                if isinstance(arrow_info, dict):
+                    # New format: dict with style info
+                    from_pos = arrow_info.get('from', '')
+                    to_pos = arrow_info.get('to', '')
+                    color_name = arrow_info.get('color', 'gray')
+                    style = arrow_info.get('style', 'solid')
+                    opacity = arrow_info.get('opacity', 1.0)
+                    is_current_turn = arrow_info.get('is_current_turn', True)
+
+                    # Parse positions
+                    from_coords = self._pos_to_coords(from_pos)
+                    to_coords = self._pos_to_coords(to_pos)
+
+                    if from_coords and to_coords:
+                        from_row, from_col = from_coords
+                        to_row, to_col = to_coords
+
+                        # Apply coordinate flipping if needed
+                        if self.is_flipped:
+                            from_row = BOARD_HEIGHT - 1 - from_row
+                            from_col = BOARD_WIDTH - 1 - from_col
+                            to_row = BOARD_HEIGHT - 1 - to_row
+                            to_col = BOARD_WIDTH - 1 - to_col
+
+                        # Calculate pixel positions với offset
+                        from_x, from_y = board_coords_to_pixel(
+                            from_row, from_col, board_rect)
+                        to_x, to_y = board_coords_to_pixel(
+                            to_row, to_col, board_rect)
+
+                        # Apply offset để tránh overlap
+                        offset_x = offset_step * engine_index * 0.5
+                        offset_y = offset_step * engine_index * 0.3
+
+                        from_x += offset_x
+                        from_y += offset_y
+                        to_x += offset_x
+                        to_y += offset_y
+
+                        # Get base color và apply opacity
+                        base_color = color_map.get(
+                            color_name, QColor(128, 128, 128))
+                        alpha = int(255 * opacity)
+                        arrow_color = QColor(
+                            base_color.red(), base_color.green(), base_color.blue(), alpha)
+
+                        # Create label cho engine
+                        label = engine_name
+                        if not is_current_turn:
+                            # Đánh dấu gợi ý cho phe đối phương
+                            label += " (phụ)"
+
+                        # Draw arrow với style tương ứng
+                        self._draw_styled_multi_arrow(
+                            painter, from_x, from_y, to_x, to_y,
+                            arrow_color, style, label, is_current_turn)
+
+                elif isinstance(arrow_info, (list, tuple)) and len(arrow_info) >= 3:
+                    # Old format compatibility: (from_pos, to_pos, color)
+                    from_pos, to_pos, color_name = arrow_info[:3]
+
+                    from_coords = self._pos_to_coords(from_pos)
+                    to_coords = self._pos_to_coords(to_pos)
+
+                    if from_coords and to_coords:
+                        from_row, from_col = from_coords
+                        to_row, to_col = to_coords
+
+                        if self.is_flipped:
+                            from_row = BOARD_HEIGHT - 1 - from_row
+                            from_col = BOARD_WIDTH - 1 - from_col
+                            to_row = BOARD_HEIGHT - 1 - to_row
+                            to_col = BOARD_WIDTH - 1 - to_col
+
+                        from_x, from_y = board_coords_to_pixel(
+                            from_row, from_col, board_rect)
+                        to_x, to_y = board_coords_to_pixel(
+                            to_row, to_col, board_rect)
+
+                        offset_x = offset_step * engine_index * 0.5
+                        offset_y = offset_step * engine_index * 0.3
+
+                        from_x += offset_x
+                        from_y += offset_y
+                        to_x += offset_x
+                        to_y += offset_y
+
+                        arrow_color = color_map.get(
+                            color_name, QColor(128, 128, 128, 180))
+
+                        self._draw_styled_multi_arrow(
+                            painter, from_x, from_y, to_x, to_y,
+                            arrow_color, 'solid', engine_name, True)
+
+            engine_index += 1
+
+    def _draw_styled_multi_arrow(self, painter, from_x, from_y, to_x, to_y, color, style='solid', label=None, is_current_turn=True):
+        """Vẽ mũi tên multi-engine với style và opacity khác nhau"""
+        # Set pen với style tương ứng
+        pen_width = 3 if is_current_turn else 2
+
+        if style == 'dashed':
+            pen = QPen(color, pen_width, Qt.DashLine)
+        else:
+            pen = QPen(color, pen_width, Qt.SolidLine)
+
+        painter.setPen(pen)
+        painter.setBrush(QBrush(color))
+
+        # Tính vector direction
+        import math
+        dx = to_x - from_x
+        dy = to_y - from_y
+        length = math.sqrt(dx*dx + dy*dy)
+
+        if length < 10:  # Quá ngắn
+            return
+
+        # Normalize
+        dx /= length
+        dy /= length
+
+        # Shorten arrow để không vẽ lên quân cờ
+        from_x += dx * 15
+        from_y += dy * 15
+        to_x -= dx * 15
+        to_y -= dy * 15
+
+        # Vẽ shaft
+        painter.drawLine(int(from_x), int(from_y), int(to_x), int(to_y))
+
+        # Vẽ arrowhead
+        arrow_length = 12 if is_current_turn else 10
+        arrow_angle = 0.5
+
+        # Arrowhead points
+        ax1 = to_x - arrow_length * \
+            (dx * math.cos(arrow_angle) - dy * math.sin(arrow_angle))
+        ay1 = to_y - arrow_length * \
+            (dy * math.cos(arrow_angle) + dx * math.sin(arrow_angle))
+
+        ax2 = to_x - arrow_length * \
+            (dx * math.cos(-arrow_angle) - dy * math.sin(-arrow_angle))
+        ay2 = to_y - arrow_length * \
+            (dy * math.cos(-arrow_angle) + dx * math.sin(-arrow_angle))
+
+        # Draw arrowhead
+        points = [QPoint(int(to_x), int(to_y)),
+                  QPoint(int(ax1), int(ay1)),
+                  QPoint(int(ax2), int(ay2))]
+
+        from PyQt5.QtGui import QPolygon
+        painter.drawPolygon(QPolygon(points))
+
+        # Draw label nếu có
+        if label and len(label) > 0:
+            # Vị trí label ở giữa arrow
+            label_x = (from_x + to_x) / 2
+            label_y = (from_y + to_y) / 2 - 12
+
+            # Short label (first few characters)
+            short_label = label[:8] if len(label) > 8 else label
+
+            font_size = 7 if is_current_turn else 6
+            font = QFont("Arial", font_size, QFont.Bold)
+            painter.setFont(font)
+
+            # Text background với alpha
+            text_rect = painter.fontMetrics().boundingRect(short_label)
+            text_rect.moveCenter(QPoint(int(label_x), int(label_y)))
+            text_rect.adjust(-2, -1, 2, 1)
+
+            bg_alpha = 220 if is_current_turn else 180
+            painter.fillRect(text_rect, QBrush(
+                QColor(255, 255, 255, bg_alpha)))
+
+            # Text color
+            text_color = QColor(0, 0, 0, 255 if is_current_turn else 180)
+            painter.setPen(QPen(text_color))
+            painter.drawText(text_rect, Qt.AlignCenter, short_label)
+
+    def _draw_multi_arrow(self, painter, from_x, from_y, to_x, to_y, color, label=None):
+        """Vẽ mũi tên multi-engine với label"""
+        # Set pen và brush
+        pen = QPen(color, 2)
+        painter.setPen(pen)
+        painter.setBrush(QBrush(color))
+
+        # Tính vector direction
+        import math
+        dx = to_x - from_x
+        dy = to_y - from_y
+        length = math.sqrt(dx*dx + dy*dy)
+
+        if length < 10:  # Quá ngắn
+            return
+
+        # Normalize
+        dx /= length
+        dy /= length
+
+        # Shorten arrow để không vẽ lên quân cờ
+        from_x += dx * 15
+        from_y += dy * 15
+        to_x -= dx * 15
+        to_y -= dy * 15
+
+        # Vẽ shaft
+        painter.drawLine(int(from_x), int(from_y), int(to_x), int(to_y))
+
+        # Vẽ arrowhead nhỏ
+        arrow_length = 10
+        arrow_angle = 0.5
+
+        # Arrowhead points
+        ax1 = to_x - arrow_length * \
+            (dx * math.cos(arrow_angle) - dy * math.sin(arrow_angle))
+        ay1 = to_y - arrow_length * \
+            (dy * math.cos(arrow_angle) + dx * math.sin(arrow_angle))
+
+        ax2 = to_x - arrow_length * \
+            (dx * math.cos(-arrow_angle) - dy * math.sin(-arrow_angle))
+        ay2 = to_y - arrow_length * \
+            (dy * math.cos(-arrow_angle) + dx * math.sin(-arrow_angle))
+
+        # Draw arrowhead
+        points = [QPoint(int(to_x), int(to_y)),
+                  QPoint(int(ax1), int(ay1)),
+                  QPoint(int(ax2), int(ay2))]
+
+        from PyQt5.QtGui import QPolygon
+        painter.drawPolygon(QPolygon(points))
+
+        # Draw label nếu có
+        if label and len(label) > 0:
+            # Vị trí label ở giữa arrow
+            label_x = (from_x + to_x) / 2
+            label_y = (from_y + to_y) / 2 - 12
+
+            # Short label (first few characters)
+            short_label = label[:6] if len(label) > 6 else label
+
+            font = QFont("Arial", 7, QFont.Bold)
+            painter.setFont(font)
+
+            # Text background
+            text_rect = painter.fontMetrics().boundingRect(short_label)
+            text_rect.moveCenter(QPoint(int(label_x), int(label_y)))
+            text_rect.adjust(-1, 0, 1, 0)
+
+            painter.fillRect(text_rect, QBrush(QColor(255, 255, 255, 220)))
+            painter.setPen(QPen(QColor(0, 0, 0)))
+            painter.drawText(text_rect, Qt.AlignCenter, short_label)

@@ -13,14 +13,15 @@ BOARD_HEIGHT = 10  # 10 hàng
 # Kích thước giao diện (pixel) - dựa trên SVG gốc 900x1000
 BOARD_SVG_WIDTH = 900  # Revert về 900
 BOARD_SVG_HEIGHT = 1000  # Revert về 1000
+BOARD_SCALE_FACTOR = 0.7
 
-# UI scaling factor (để scale down 50%)
+# UI scaling factor (để scale down cho canvas nhỏ như trong ảnh tham khảo)
 UI_SCALE_FACTOR = 0.75
 # Piece size (tăng lên để không quá nhỏ)
 PIECE_SIZE = int(120 * UI_SCALE_FACTOR)  # 120 * 0.5 = 60px thay vì 40px
 
 # UI constants
-BOARD_MARGIN = int(50 * UI_SCALE_FACTOR)  # 50 * 0.5 = 25
+BOARD_MARGIN = int(5 * UI_SCALE_FACTOR)
 
 # Offset của board thực tế trong SVG (margin trong SVG)
 BOARD_OFFSET_X = 50  # Vị trí bắt đầu board thực tế trong SVG
