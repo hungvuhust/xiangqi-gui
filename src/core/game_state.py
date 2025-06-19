@@ -151,6 +151,12 @@ class GameState:
         if self._would_be_in_check_after_move(from_row, from_col, to_row, to_col):
             return False
 
+        # Kiểm tra không vi phạm quy tắc tướng đối tướng sau nước đi
+        if self._would_violate_flying_general_after_move(from_row, from_col, to_row, to_col):
+            print(
+                f"❌ Nước đi từ ({from_row},{from_col}) đến ({to_row},{to_col}) vi phạm quy tắc tướng đối tướng")
+            return False
+
         return True
 
     def _is_valid_position(self, row, col):
@@ -195,10 +201,6 @@ class GameState:
 
         # Phải ở trong cung
         if not self._is_in_palace(to_row, to_col):
-            return False
-
-        # Kiểm tra "flying general" rule - hai vua không được đối mặt trực tiếp
-        if not self._check_flying_general_rule(from_row, from_col, to_row, to_col):
             return False
 
         return True
@@ -784,6 +786,7 @@ class GameState:
                     break
 
         if not king_pos:
+            print(f"⚠️ Không tìm thấy vua {king_piece} trên bàn cờ")
             return False  # Không tìm thấy vua
 
         # Kiểm tra có quân đối phương nào có thể tấn công vua không
@@ -808,6 +811,8 @@ class GameState:
                     self.current_player = old_player
 
                     if can_attack:
+                        print(
+                            f"🚨 Nước đi từ ({from_row},{from_col}) đến ({to_row},{to_col}) sẽ để {king_piece} tại {king_pos} bị chiếu bởi {enemy_piece} tại ({row},{col})")
                         return True  # Bị chiếu
 
         return False  # Không bị chiếu

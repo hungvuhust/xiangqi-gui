@@ -15,14 +15,16 @@ from typing import Optional, List, Callable
 class UCCIEngine:
     """Class để giao tiếp với engine cờ tướng qua giao thức UCCI"""
 
-    def __init__(self, engine_path: str):
+    def __init__(self, engine_path: str, protocol: str = "ucci"):
         """
         Khởi tạo engine
 
         Args:
             engine_path: Đường dẫn đến file executable của engine
+            protocol: "ucci" cho cờ tướng, "uci" cho cờ vua
         """
         self.engine_path = engine_path
+        self.protocol = protocol.lower()
         self.process = None
         self.input_queue = queue.Queue()
         self.output_queue = queue.Queue()
@@ -56,8 +58,11 @@ class UCCIEngine:
             self.engine_thread.daemon = True
             self.engine_thread.start()
 
-            # Gửi lệnh ucci để khởi tạo
-            self.send_command("ucci")
+            # Gửi lệnh khởi tạo theo protocol
+            if self.protocol == "ucci":
+                self.send_command("ucci")
+            else:  # UCI
+                self.send_command("uci")
             return True
 
         except Exception as e:
@@ -92,7 +97,10 @@ class UCCIEngine:
 
     def new_game(self):
         """Bắt đầu ván cờ mới"""
-        self.send_command("ucinewgame")
+        if self.protocol == "ucci":
+            self.send_command("uccinewgame")
+        else:  # UCI
+            self.send_command("ucinewgame")
 
     def set_position(self, fen: str, moves: List[str] = None):
         """
@@ -122,6 +130,12 @@ class UCCIEngine:
             command += f" movetime {time_ms}"
 
         self.send_command(command)
+
+    def go_infinite(self):
+        """
+        Yêu cầu engine phân tích liên tục (infinite analysis)
+        """
+        self.send_command("go infinite")
 
     def stop_search(self):
         """Dừng tìm kiếm"""
@@ -185,7 +199,7 @@ class UCCIEngine:
 
         command = parts[0]
 
-        if command == "ucciok":
+        if command == "ucciok" or command == "uciok":
             print("Engine đã sẵn sàng")
 
         elif command == "readyok":
@@ -220,6 +234,21 @@ class UCCIEngineManager:
     def __init__(self):
         self.engines = {}
         self.current_engine = None
+        self.protocol = "ucci"  # Mặc định UCCI cho cờ tướng
+
+    def set_protocol(self, protocol: str):
+        """
+        Đặt protocol sử dụng
+
+        Args:
+            protocol: "ucci" cho cờ tướng, "uci" cho cờ vua
+        """
+        self.protocol = protocol.lower()
+        print(f"Protocol đã được đặt thành: {self.protocol.upper()}")
+
+    def get_protocol(self) -> str:
+        """Lấy protocol hiện tại"""
+        return self.protocol
 
     def add_engine(self, name: str, path: str) -> bool:
         """
@@ -232,7 +261,7 @@ class UCCIEngineManager:
         Returns:
             True nếu thành công
         """
-        engine = UCCIEngine(path)
+        engine = UCCIEngine(path, self.protocol)
         if engine.start():
             self.engines[name] = engine
             return True

@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QMenuBar, QMenu, QAction, QStatusBar, QToolBar,
                              QLabel, QPushButton, QTextEdit, QSplitter,
                              QMessageBox, QApplication, QDesktopWidget, QFileDialog)
-from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer
 from PyQt5.QtGui import QIcon, QFont, QKeySequence
 
 from .board_widget import BoardWidget
@@ -30,8 +30,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.game_state = GameState()
         self.engine_manager = UCCIEngineManager()
-
-        self.hints_enabled = True  # Track hint state
+        self.engine_log = []
+        self.ignore_engine_info = False  # Flag để ignore engine info sau khi tắt analysis
 
         self.init_ui()
         self.setup_connections()
@@ -174,13 +174,26 @@ class MainWindow(QMainWindow):
 
         engine_menu.addSeparator()
 
-        toggle_hints_action = QAction('&Toggle Hints', self)
+        toggle_hints_action = QAction('&Toggle Mũi Tên', self)
         toggle_hints_action.setCheckable(True)
-        toggle_hints_action.setChecked(True)
-        toggle_hints_action.setStatusTip('Bật/tắt gợi ý từ engine')
-        toggle_hints_action.triggered.connect(self.toggle_engine_hints)
+        toggle_hints_action.setChecked(False)
+        toggle_hints_action.setStatusTip('Bật/tắt hiển thị mũi tên gợi ý')
+        toggle_hints_action.triggered.connect(self.toggle_arrow_display)
         engine_menu.addAction(toggle_hints_action)
-        self.hints_enabled = True  # Track hint state
+
+        # Lưu reference để sử dụng trong các method khác
+        self.arrow_action = toggle_hints_action
+
+        # Protocol selection
+        protocol_action = QAction('&UCCI Protocol', self)
+        protocol_action.setCheckable(True)
+        protocol_action.setChecked(True)  # Mặc định UCCI cho cờ tướng
+        protocol_action.setStatusTip('Chọn UCCI (cờ tướng) hoặc UCI (cờ vua)')
+        protocol_action.triggered.connect(self.toggle_protocol)
+        engine_menu.addAction(protocol_action)
+
+        # Lưu reference để sử dụng trong các method khác
+        self.protocol_action = protocol_action
 
         # Menu View
         view_menu = menubar.addMenu('&Hiển Thị')
@@ -224,9 +237,10 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
 
         # Engine analysis
-        analyze_action = QAction("Phân Tích", self)
-        analyze_action.triggered.connect(self.toggle_engine_analysis)
-        toolbar.addAction(analyze_action)
+        self.analyze_action = QAction("Phân Tích", self)
+        self.analyze_action.setCheckable(True)  # Cho phép toggle state
+        self.analyze_action.triggered.connect(self.toggle_engine_analysis)
+        toolbar.addAction(self.analyze_action)
 
     def setup_connections(self):
         """Thiết lập kết nối signals/slots"""
@@ -256,18 +270,53 @@ class MainWindow(QMainWindow):
         # Clear engine hint
         self.board_widget.clear_engine_hint()
 
-        # Thông báo cho engine và request hint ban đầu
+        # Tắt analysis mode nếu đang bật
+        if hasattr(self, 'analysis_enabled') and self.analysis_enabled:
+            self.analysis_enabled = False
+            self.analyze_action.setChecked(False)
+
+        # Reset và reload engine nếu có
         if self.engine_manager.get_current_engine():
-            engine = self.engine_manager.get_current_engine()
-            engine.new_game()
+            current_engine_name = None
+            current_engine_path = None
 
-            # Set initial position và request hint
-            initial_fen = self.game_state.to_fen()
-            if initial_fen:
-                engine.set_position(initial_fen)
-                engine.get_hint(depth=6)  # Request hint cho nước đi đầu tiên
+            # Lưu thông tin engine hiện tại
+            for name, engine in self.engine_manager.engines.items():
+                if engine == self.engine_manager.current_engine:
+                    current_engine_name = name
+                    current_engine_path = engine.engine_path
+                    break
 
-        self.update_status("✓ Ván cờ mới đã bắt đầu - Lượt của Đỏ")
+            if current_engine_name and current_engine_path:
+                # Dừng và xóa engine hiện tại
+                self.engine_manager.get_current_engine().stop()
+                del self.engine_manager.engines[current_engine_name]
+                self.engine_manager.current_engine = None
+
+                # Reset arrow state về false trước khi restart
+                if hasattr(self, 'arrow_action'):
+                    self.arrow_action.setChecked(False)
+
+                # Load lại engine từ đầu
+                success = self.engine_manager.add_engine(
+                    current_engine_name, current_engine_path)
+                if success:
+                    self.engine_manager.set_current_engine(current_engine_name)
+                    engine = self.engine_manager.get_current_engine()
+
+                    # Setup callbacks
+                    engine.on_bestmove = self.on_engine_bestmove
+                    engine.on_info = self.on_engine_info
+
+                    # Set position từ FEN
+                    engine.set_position(self.game_state.to_fen())
+
+                self.update_status(
+                    f"✓ Ván cờ mới đã bắt đầu - Engine {current_engine_name} đã được restart")
+            else:
+                self.update_status("✓ Ván cờ mới đã bắt đầu - Lượt của Đỏ")
+        else:
+            self.update_status("✓ Ván cờ mới đã bắt đầu - Lượt của Đỏ")
 
     def load_engine(self):
         """Tải engine từ file"""
@@ -336,7 +385,7 @@ class MainWindow(QMainWindow):
             # Check for game end conditions
             self.check_game_end()
 
-            # Send move to engine và request hint cho nước đi tiếp theo
+            # Send move to engine
             if self.engine_manager.get_current_engine():
                 engine = self.engine_manager.get_current_engine()
 
@@ -348,13 +397,13 @@ class MainWindow(QMainWindow):
                         self.game_state.move_history)
                     engine.set_position(current_fen, engine_moves)
 
-                # Request hint cho nước đi tiếp theo nếu hints enabled
-                if self.hints_enabled:
-                    engine.get_hint(depth=6)  # Depth 6 cho hint nhanh
-
                 # Nếu analysis mode bật, phân tích position mới
                 if hasattr(self, 'analysis_enabled') and self.analysis_enabled:
-                    engine.go(depth=15)  # Phân tích sâu cho analysis mode
+                    # Dừng analysis cũ và bắt đầu mới
+                    engine.stop_search()
+                    self.ignore_engine_info = True
+                    QTimer.singleShot(100, lambda: self.start_new_analysis(
+                        engine, current_fen, engine_moves))
         else:
             self.update_status("❌ Nước đi không hợp lệ")
 
@@ -389,6 +438,10 @@ class MainWindow(QMainWindow):
     @pyqtSlot(str)
     def handle_engine_info(self, info):
         """Thread-safe xử lý info từ engine"""
+        # Kiểm tra nếu đang ignore engine info (sau khi tắt analysis)
+        if hasattr(self, 'ignore_engine_info') and self.ignore_engine_info:
+            return
+
         # Parse engine info và cập nhật game info widget
         if "depth" in info or "score" in info or "pv" in info:
             self.engine_log.append(info)
@@ -397,6 +450,73 @@ class MainWindow(QMainWindow):
             info_data = self.parse_engine_info(info)
             if info_data:
                 self.game_info_widget.set_engine_info(**info_data)
+
+                # Nếu analysis mode bật và có PV, cập nhật mũi tên
+                if (hasattr(self, 'analysis_enabled') and self.analysis_enabled and
+                        'pv' in info_data and info_data['pv'] and self.arrow_action.isChecked()):
+
+                    # Lấy nước đi đầu tiên từ PV làm best move
+                    best_move = info_data['pv'][0] if info_data['pv'] else None
+                    ponder_move = info_data['pv'][1] if len(
+                        info_data['pv']) > 1 else None
+
+                    if best_move:
+                        # Cập nhật mũi tên analysis
+                        self.board_widget.set_engine_hint(
+                            best_move, ponder_move)
+
+                        # Update status với depth info
+                        depth = info_data.get('depth', '?')
+                        eval_str = info_data.get('evaluation', '?')
+                        self.update_status(
+                            f"🔍 Phân tích depth {depth}: {best_move} (eval: {eval_str})")
+
+    @pyqtSlot(str)
+    def handle_engine_bestmove(self, bestmove_line):
+        """Thread-safe xử lý bestmove từ engine"""
+        # Luôn xử lý bestmove để log và update info
+        if bestmove_line:
+            print(f"�� Engine response: {bestmove_line}")
+
+            # Parse bestmove line: "bestmove b0c2 ponder g6g5"
+            parts = bestmove_line.strip().split()
+            bestmove = None
+            ponder = None
+
+            for i, part in enumerate(parts):
+                if part == "bestmove" and i + 1 < len(parts):
+                    bestmove = parts[i + 1]
+                elif part == "ponder" and i + 1 < len(parts):
+                    ponder = parts[i + 1]
+
+            if bestmove:
+                # Chỉ vẽ mũi tên khi arrow display bật
+                if self.arrow_action.isChecked():
+                    # Hiển thị hint trên board với cả bestmove và ponder
+                    self.board_widget.set_engine_hint(bestmove, ponder)
+
+                # Update status với màu tương ứng
+                player_name = "Đỏ" if self.game_state.current_player == 'red' else "Đen"
+                arrow_color = "tím" if self.game_state.current_player == 'red' else "xanh"
+
+                status_msg = f"🤖 Engine gợi ý cho {player_name} (mũi tên {arrow_color}): {bestmove}"
+                if ponder:
+                    opponent_name = "Đen" if self.game_state.current_player == 'red' else "Đỏ"
+                    ponder_color = "xanh" if self.game_state.current_player == 'red' else "tím"
+                    status_msg += f", dự đoán {opponent_name} (đứt nét {ponder_color}): {ponder}"
+
+                self.update_status(status_msg)
+
+            # Log vào engine log cho cả 2 mode
+            log_msg = f"Engine đề xuất: {bestmove}"
+            if ponder:
+                log_msg += f", dự đoán: {ponder}"
+            self.engine_log.append(log_msg)
+
+            # Cập nhật best move trong game info widget cho cả 2 mode
+            formatted_move = self.format_move_notation(
+                bestmove, is_engine_notation=True)
+            self.game_info_widget.set_engine_info(best_move=formatted_move)
 
     def parse_engine_info(self, info_line):
         """
@@ -492,15 +612,22 @@ class MainWindow(QMainWindow):
 
                 self.update_status(f"✓ Đã hoàn tác nước đi: {last_move}")
 
-                # Trigger analysis nếu analysis mode bật
-                if hasattr(self, 'analysis_enabled') and self.analysis_enabled and self.engine_manager.get_current_engine():
+                # Sync với engine
+                if self.engine_manager.get_current_engine():
                     engine = self.engine_manager.get_current_engine()
                     current_fen = self.game_state.to_fen()
                     if current_fen:
                         engine_moves = self.convert_moves_to_engine_notation(
                             self.game_state.move_history)
                         engine.set_position(current_fen, engine_moves)
-                        engine.go(depth=15)
+
+                    # Nếu analysis mode bật, phân tích position mới
+                    if hasattr(self, 'analysis_enabled') and self.analysis_enabled:
+                        # Dừng analysis cũ và bắt đầu mới
+                        engine.stop_search()
+                        self.ignore_engine_info = True
+                        QTimer.singleShot(100, lambda: self.start_new_analysis(
+                            engine, current_fen, engine_moves))
             else:
                 self.update_status("❌ Không thể hoàn tác")
         else:
@@ -534,48 +661,26 @@ class MainWindow(QMainWindow):
 
                 self.update_status(f"✓ Làm lại nước đi: {formatted_move}")
 
-                # Request hint cho position mới nếu hints enabled
-                if self.hints_enabled and self.engine_manager.get_current_engine():
+                # Sync với engine
+                if self.engine_manager.get_current_engine():
                     engine = self.engine_manager.get_current_engine()
                     current_fen = self.game_state.to_fen()
                     if current_fen:
                         engine_moves = self.convert_moves_to_engine_notation(
                             self.game_state.move_history)
                         engine.set_position(current_fen, engine_moves)
-                        engine.get_hint(depth=6)
 
-                # Trigger analysis nếu analysis mode bật
-                if hasattr(self, 'analysis_enabled') and self.analysis_enabled and self.engine_manager.get_current_engine():
-                    engine = self.engine_manager.get_current_engine()
-                    current_fen = self.game_state.to_fen()
-                    if current_fen:
-                        engine_moves = self.convert_moves_to_engine_notation(
-                            self.game_state.move_history)
-                        engine.set_position(current_fen, engine_moves)
-                        engine.go(depth=15)
+                    # Nếu analysis mode bật, phân tích position mới
+                    if hasattr(self, 'analysis_enabled') and self.analysis_enabled:
+                        # Dừng analysis cũ và bắt đầu mới
+                        engine.stop_search()
+                        self.ignore_engine_info = True
+                        QTimer.singleShot(100, lambda: self.start_new_analysis(
+                            engine, current_fen, engine_moves))
             else:
                 self.update_status("❌ Không thể làm lại nước đi")
         else:
             self.update_status("❌ Không có nước đi để làm lại")
-
-    def get_hint(self):
-        """Lấy gợi ý từ engine"""
-        if self.engine_manager.get_current_engine():
-            engine = self.engine_manager.get_current_engine()
-
-            # Lấy FEN hiện tại thay vì INITIAL_POSITION
-            current_fen = self.game_state.to_fen()
-            if current_fen:
-                # Chuyển đổi move history sang engine notation
-                engine_moves = self.convert_moves_to_engine_notation(
-                    self.game_state.move_history)
-                engine.set_position(current_fen, engine_moves)
-                engine.go(depth=ENGINE_DEPTH)
-                self.update_status("Đang tìm nước đi tốt nhất...")
-            else:
-                self.update_status("❌ Không thể lấy FEN hiện tại")
-        else:
-            self.update_status("Chưa có engine được tải")
 
     def update_turn_label(self):
         """Cập nhật label hiển thị lượt chơi"""
@@ -626,13 +731,53 @@ class MainWindow(QMainWindow):
                 self.game_state.load_from_fen(fen)
                 self.game_info_widget.reset()
 
-                # Thông báo cho engine
-                if self.engine_manager.get_current_engine():
-                    engine = self.engine_manager.get_current_engine()
-                    engine.new_game()
-                    engine.set_position(fen)
+                # Tắt analysis mode nếu đang bật
+                if hasattr(self, 'analysis_enabled') and self.analysis_enabled:
+                    self.analysis_enabled = False
+                    self.analyze_action.setChecked(False)
 
-                self.update_status("✓ Đã load position từ FEN")
+                # Clear engine hint
+                self.board_widget.clear_engine_hint()
+
+                # Reset engine với position mới
+                if self.engine_manager.get_current_engine():
+                    current_engine_name = None
+                    current_engine_path = None
+
+                    # Lưu thông tin engine hiện tại
+                    for name, engine in self.engine_manager.engines.items():
+                        if engine == self.engine_manager.current_engine:
+                            current_engine_name = name
+                            current_engine_path = engine.engine_path
+                            break
+
+                    if current_engine_name and current_engine_path:
+                        # Dừng và xóa engine hiện tại
+                        self.engine_manager.get_current_engine().stop()
+                        del self.engine_manager.engines[current_engine_name]
+                        self.engine_manager.current_engine = None
+
+                        # Reset arrow state về false trước khi restart
+                        if hasattr(self, 'arrow_action'):
+                            self.arrow_action.setChecked(False)
+
+                        # Load lại engine từ đầu
+                        success = self.engine_manager.add_engine(
+                            current_engine_name, current_engine_path)
+                        if success:
+                            self.engine_manager.set_current_engine(
+                                current_engine_name)
+                            engine = self.engine_manager.get_current_engine()
+
+                            # Setup callbacks
+                            engine.on_bestmove = self.on_engine_bestmove
+                            engine.on_info = self.on_engine_info
+
+                            # Set position từ FEN
+                            engine.set_position(fen)
+
+                self.update_status(
+                    "✓ Đã load position từ FEN - Engine đã được restart")
             else:
                 self.update_status("❌ Không thể load FEN")
 
@@ -649,14 +794,32 @@ class MainWindow(QMainWindow):
 
         self.analysis_enabled = not self.analysis_enabled
 
+        # Update visual state của button
+        self.analyze_action.setChecked(self.analysis_enabled)
+
         if not self.analysis_enabled:
-            # Tắt analysis - dừng engine analysis
+            # Tắt analysis - dừng engine và clear arrows
             if self.engine_manager.get_current_engine():
                 engine = self.engine_manager.get_current_engine()
                 engine.stop_search()
+
+            # Clear analysis arrows nếu arrow display tắt
+            if not self.arrow_action.isChecked():
+                self.board_widget.clear_engine_hint()
+
+            # Set flag để ignore thông tin engine cũ
+            self.ignore_engine_info = True
+
+            # Dùng QTimer để reset flag sau một khoảng thời gian ngắn
+            QTimer.singleShot(200, lambda: setattr(
+                self, 'ignore_engine_info', False))
+
             self.update_status("🔍 Đã tắt phân tích liên tục")
         else:
-            # Bật analysis - bắt đầu phân tích position hiện tại
+            # Reset flag để nhận thông tin engine mới
+            self.ignore_engine_info = False
+
+            # Bật analysis - bắt đầu continuous analysis
             if self.engine_manager.get_current_engine():
                 engine = self.engine_manager.get_current_engine()
                 current_fen = self.game_state.to_fen()
@@ -664,29 +827,32 @@ class MainWindow(QMainWindow):
                     engine_moves = self.convert_moves_to_engine_notation(
                         self.game_state.move_history)
                     engine.set_position(current_fen, engine_moves)
-                    # Phân tích sâu hơn cho analysis mode
-                    engine.go(depth=15)  # Depth cao hơn cho analysis
-                self.update_status("🔍 Đã bật phân tích liên tục (depth 15)")
+                    # Bắt đầu continuous analysis (không có depth limit)
+                    engine.go_infinite()  # Phân tích vô hạn
+                self.update_status("🔍 Đã bật phân tích liên tục")
             else:
+                # Reset button state nếu không có engine
+                self.analysis_enabled = False
+                self.analyze_action.setChecked(False)
                 self.update_status("❌ Cần load engine trước khi phân tích")
 
-    def toggle_engine_hints(self):
-        """Toggle engine hints on/off"""
-        self.hints_enabled = not self.hints_enabled
-
-        if not self.hints_enabled:
-            # Tắt hints - clear hint hiện tại
+    def toggle_arrow_display(self):
+        """Toggle arrow display on/off"""
+        if not self.arrow_action.isChecked():
+            # Tắt arrow display
             self.board_widget.clear_engine_hint()
-            self.update_status("🤖 Đã tắt gợi ý engine")
+            self.update_status("➡️ Đã tắt hiển thị mũi tên")
         else:
-            # Bật hints - request hint cho position hiện tại
+            # Bật arrow display - request hint nếu có engine
+            self.update_status("➡️ Đã bật hiển thị mũi tên")
             if self.engine_manager.get_current_engine():
                 engine = self.engine_manager.get_current_engine()
                 current_fen = self.game_state.to_fen()
                 if current_fen:
-                    engine.set_position(current_fen)
+                    engine_moves = self.convert_moves_to_engine_notation(
+                        self.game_state.move_history)
+                    engine.set_position(current_fen, engine_moves)
                     engine.get_hint(depth=6)
-            self.update_status("🤖 Đã bật gợi ý engine")
 
     def load_engine_dialog(self):
         """Hiển thị dialog để chọn engine file"""
@@ -715,58 +881,14 @@ class MainWindow(QMainWindow):
 
             self.update_status(f"✓ Engine đã được tải: {engine_path}")
 
-            # Request hint cho position hiện tại nếu hints enabled
-            if self.hints_enabled:
+            # Chỉ request hint nếu hints mode đang bật
+            if self.arrow_action.isChecked():
                 current_fen = self.game_state.to_fen()
                 if current_fen:
                     engine.set_position(current_fen)
                     engine.get_hint(depth=6)
         else:
             self.update_status(f"❌ Không thể tải engine: {engine_path}")
-
-    @pyqtSlot(str)
-    def handle_engine_bestmove(self, bestmove_line):
-        """Thread-safe xử lý bestmove từ engine"""
-        if self.hints_enabled and bestmove_line:
-            print(f"🤖 Engine response: {bestmove_line}")
-
-            # Parse bestmove line: "bestmove b0c2 ponder g6g5"
-            parts = bestmove_line.strip().split()
-            bestmove = None
-            ponder = None
-
-            for i, part in enumerate(parts):
-                if part == "bestmove" and i + 1 < len(parts):
-                    bestmove = parts[i + 1]
-                elif part == "ponder" and i + 1 < len(parts):
-                    ponder = parts[i + 1]
-
-            if bestmove:
-                # Hiển thị hint trên board với cả bestmove và ponder
-                self.board_widget.set_engine_hint(bestmove, ponder)
-
-                # Update status với màu tương ứng
-                player_name = "Đỏ" if self.game_state.current_player == 'red' else "Đen"
-                arrow_color = "tím" if self.game_state.current_player == 'red' else "xanh"
-
-                status_msg = f"🤖 Engine gợi ý cho {player_name} (mũi tên {arrow_color}): {bestmove}"
-                if ponder:
-                    opponent_name = "Đen" if self.game_state.current_player == 'red' else "Đỏ"
-                    ponder_color = "xanh" if self.game_state.current_player == 'red' else "tím"
-                    status_msg += f", dự đoán {opponent_name} (đứt nét {ponder_color}): {ponder}"
-
-                self.update_status(status_msg)
-
-                # Log vào engine log
-                log_msg = f"Engine đề xuất: {bestmove}"
-                if ponder:
-                    log_msg += f", dự đoán: {ponder}"
-                self.engine_log.append(log_msg)
-
-                # Cập nhật best move trong game info widget
-                formatted_move = self.format_move_notation(
-                    bestmove, is_engine_notation=True)
-                self.game_info_widget.set_engine_info(best_move=formatted_move)
 
     def format_move_notation(self, move, is_engine_notation=False):
         """
@@ -837,3 +959,80 @@ class MainWindow(QMainWindow):
                 engine_moves.append(engine_move)
 
         return engine_moves
+
+    def get_hint(self):
+        """Request hint from the engine"""
+        if self.engine_manager.get_current_engine():
+            # Tắt analysis mode nếu đang bật
+            if hasattr(self, 'analysis_enabled') and self.analysis_enabled:
+                self.analysis_enabled = False
+                self.analyze_action.setChecked(False)
+                # Dừng engine analysis
+                engine = self.engine_manager.get_current_engine()
+                engine.stop_search()
+                self.update_status("⚠️ Đã tắt phân tích để thực hiện gợi ý")
+
+                # Đặt flag để ignore engine info cũ
+                self.ignore_engine_info = True
+                # Delay ngắn để engine dừng hoàn toàn trước khi gợi ý
+                QTimer.singleShot(200, self._request_hint)
+            else:
+                # Không có analysis mode, gợi ý ngay
+                self._request_hint()
+        else:
+            self.update_status("❌ Cần load engine trước khi gợi ý")
+
+    def _request_hint(self):
+        """Thực hiện request hint sau khi đã dừng analysis"""
+        if self.engine_manager.get_current_engine():
+            # Reset flag để nhận engine info mới
+            self.ignore_engine_info = False
+
+            engine = self.engine_manager.get_current_engine()
+            current_fen = self.game_state.to_fen()
+            if current_fen:
+                engine_moves = self.convert_moves_to_engine_notation(
+                    self.game_state.move_history)
+                engine.set_position(current_fen, engine_moves)
+                engine.get_hint(depth=6)
+                self.update_status("🤖 Đang yêu cầu gợi ý từ engine...")
+            else:
+                self.update_status("❌ Không có vị trí để gợi ý")
+
+    def start_new_analysis(self, engine, current_fen, engine_moves):
+        """Bắt đầu analysis mới với position hiện tại"""
+        if hasattr(self, 'analysis_enabled') and self.analysis_enabled:
+            # Reset flag để nhận engine info mới
+            self.ignore_engine_info = False
+            # Set position mới
+            engine.set_position(current_fen, engine_moves)
+            # Bắt đầu analysis mới
+            engine.go_infinite()
+            print(f"🔍 Bắt đầu analysis mới cho position: {current_fen}")
+
+    def toggle_protocol(self):
+        """Toggle protocol between UCCI and UCI"""
+        is_ucci = self.protocol_action.isChecked()
+
+        if is_ucci:
+            protocol_name = "UCCI"
+            game_type = "cờ tướng"
+        else:
+            protocol_name = "UCI"
+            game_type = "cờ vua"
+
+        # Dừng engine hiện tại nếu có
+        if self.engine_manager.get_current_engine():
+            engine = self.engine_manager.get_current_engine()
+            engine.stop_search()
+            # Clear arrows
+            self.board_widget.clear_engine_hint()
+
+        # Cập nhật protocol trong engine manager
+        self.engine_manager.set_protocol(protocol_name.lower())
+
+        self.update_status(
+            f"🔄 Đã chuyển sang protocol {protocol_name} cho {game_type}")
+
+        # Cập nhật text của menu item
+        self.protocol_action.setText(f"&{protocol_name} Protocol")

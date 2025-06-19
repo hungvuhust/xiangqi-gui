@@ -401,11 +401,11 @@ class BoardWidget(QWidget):
                 target_piece = self.board_state[move_row][move_col]
 
                 if target_piece is not None:
-                    # Có quân địch - vẽ chấm đỏ mờ (capture move)
-                    # Viền đỏ mờ
-                    painter.setPen(QPen(QColor(255, 0, 0, 180), 2))
-                    # Fill đỏ mờ hơn
-                    painter.setBrush(QBrush(QColor(255, 0, 0, 100)))
+                    # Có quân địch - vẽ chấm tím mờ (capture move)
+                    # Viền tím mờ
+                    painter.setPen(QPen(QColor(128, 0, 128, 180), 2))
+                    # Fill tím mờ hơn
+                    painter.setBrush(QBrush(QColor(128, 0, 128, 100)))
                 else:
                     # Ô trống - vẽ chấm trắng mờ (normal move)
                     # Viền trắng mờ
