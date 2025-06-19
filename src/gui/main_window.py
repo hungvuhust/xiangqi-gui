@@ -894,7 +894,7 @@ class MainWindow(QMainWindow):
                     engine_moves = self.convert_moves_to_engine_notation(
                         self.game_state.move_history)
                     engine.set_position(current_fen, engine_moves)
-                    engine.get_hint(depth=6)
+                    engine.get_hint(depth=15)
 
     def load_engine_dialog(self):
         """Hiển thị dialog để chọn engine file"""
@@ -928,7 +928,7 @@ class MainWindow(QMainWindow):
                 current_fen = self.game_state.to_fen()
                 if current_fen:
                     engine.set_position(current_fen)
-                    engine.get_hint(depth=6)
+                    engine.get_hint(depth=15)
         else:
             self.update_status(f"❌ Không thể tải engine: {engine_path}")
 
@@ -1036,7 +1036,7 @@ class MainWindow(QMainWindow):
                 engine_moves = self.convert_moves_to_engine_notation(
                     self.game_state.move_history)
                 engine.set_position(current_fen, engine_moves)
-                engine.get_hint(depth=6)
+                engine.get_hint(depth=15)
                 self.update_status("🤖 Đang yêu cầu gợi ý từ engine...")
             else:
                 self.update_status("❌ Không có vị trí để gợi ý")

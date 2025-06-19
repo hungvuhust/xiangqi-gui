@@ -15,7 +15,7 @@ BOARD_SVG_WIDTH = 900  # Revert về 900
 BOARD_SVG_HEIGHT = 1000  # Revert về 1000
 
 # UI scaling factor (để scale down 50%)
-UI_SCALE_FACTOR = 0.8
+UI_SCALE_FACTOR = 0.75
 # Piece size (tăng lên để không quá nhỏ)
 PIECE_SIZE = int(120 * UI_SCALE_FACTOR)  # 120 * 0.5 = 60px thay vì 40px
 
@@ -29,12 +29,12 @@ BOARD_ACTUAL_WIDTH = 800  # Kích thước thực tế board trong SVG
 BOARD_ACTUAL_HEIGHT = 900  # Kích thước thực tế board trong SVG
 
 # Màu sắc
-BOARD_COLOR = "#F5DEB3"     # Màu nền bàn cờ (wheat)
+BOARD_COLOR = "#DDDDDD"     # Màu nền bàn cờ (wheat)
 GRID_COLOR = "#8B4513"      # Màu lưới (saddle brown)
 RED_PIECE_COLOR = "#DC143C"  # Màu quân đỏ
 BLACK_PIECE_COLOR = "#2F4F4F"  # Màu quân đen
 HIGHLIGHT_COLOR = "#FFD700"  # Màu highlight nước đi (gold)
-SELECTED_COLOR = "#FF6347"   # Màu quân được chọn (tomato)
+SELECTED_COLOR = "#7E1891"   # Màu quân được chọn (tomato)
 
 # Vị trí ban đầu các quân cờ (theo ký hiệu FEN)
 INITIAL_POSITION = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1"
