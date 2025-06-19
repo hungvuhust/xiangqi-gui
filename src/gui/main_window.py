@@ -11,6 +11,7 @@ from .setup_widget import SetupWidget
 from .multi_engine_widget import MultiEngineWidget
 from .game_info_widget import GameInfoWidget
 from .board_widget import BoardWidget
+from ..utils.shared_state import update_from_gui
 import sys
 import os
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -46,6 +47,12 @@ class MainWindow(QMainWindow):
         # Khởi tạo ROS controller
         self.ros_controller = None
         self._init_ros_controller()
+
+        # Timer để update shared state định kỳ với engine results
+        self.shared_state_timer = QTimer()
+        self.shared_state_timer.timeout.connect(self._update_shared_state)
+        self.shared_state_timer.setInterval(1000)  # Update mỗi 1 giây
+        self.shared_state_timer.start()
 
         # Setup UI
         self.init_ui()
@@ -421,6 +428,9 @@ class MainWindow(QMainWindow):
 
             # Sync với ROS nếu có
             self._sync_with_ros(current_fen)
+
+            # Update shared state với position mới
+            self._update_shared_state()
         else:
             print(f"❌ [SIGNAL] Cannot emit - no FEN available")
 
@@ -431,6 +441,30 @@ class MainWindow(QMainWindow):
                 self.ros_controller.update_position_in_ros(fen_string)
             except Exception as e:
                 print(f"❌ ROS sync error: {e}")
+
+    def _update_shared_state(self):
+        """Cập nhật shared state với position và engine results hiện tại"""
+        try:
+            current_fen = self.game_state.to_fen()
+            if current_fen:
+                # Lấy engine results từ multi-engine widget
+                engine_results = {}
+                if hasattr(self, 'multi_engine_widget') and self.multi_engine_widget:
+                    engine_results = self.multi_engine_widget.multi_engine_manager.get_results()
+
+                # Update shared state
+                update_from_gui(
+                    fen=current_fen,
+                    current_player=self.game_state.current_player,
+                    moves=self.game_state.move_history.copy(),
+                    engine_results=engine_results
+                )
+
+                print(f"🔄 Updated shared state: FEN={current_fen[:20]}..., "
+                      f"Player={self.game_state.current_player}, "
+                      f"Engines={len(engine_results)}")
+        except Exception as e:
+            print(f"❌ Error updating shared state: {e}")
 
     def new_game(self):
         """Bắt đầu ván mới"""
@@ -636,6 +670,10 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Xử lý khi đóng ứng dụng"""
+        # Stop shared state timer
+        if hasattr(self, 'shared_state_timer'):
+            self.shared_state_timer.stop()
+
         # Stop multi-engine manager
         if hasattr(self, 'multi_engine_widget'):
             self.multi_engine_widget.closeEvent(event)

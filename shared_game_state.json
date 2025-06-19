@@ -1,0 +1,12 @@
+{
+  "fen": "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w",
+  "current_player": "red",
+  "move_count": 0,
+  "move_history": [],
+  "game_status": "playing",
+  "best_move": null,
+  "last_update_time": 1750344691.9649456,
+  "last_analysis_time": 0,
+  "engine_results": {},
+  "timestamp": 1750344691.9649901
+}

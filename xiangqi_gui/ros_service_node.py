@@ -1,66 +1,44 @@
 #!/usr/bin/env python3
 
-from src.core.game_state import GameState
+from src.utils.shared_state import get_for_ros
 import rclpy
 from rclpy.node import Node
 from std_srvs.srv import Trigger
 import sys
 import os
-import threading
-import time
 
 # Add parent directory to path để import được main modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 class XiangqiRosService(Node):
-    """ROS2 Service Node để expose FEN của bàn cờ Xiangqi"""
+    """ROS2 Service Node để đọc shared state từ main GUI"""
 
     def __init__(self):
         super().__init__('xiangqi_ros_service')
 
-        # Tạo GameState instance
-        self.game_state = GameState()
-
-        # Tạo service server
-        self.srv = self.create_service(
+        # Tạo service servers
+        self.fen_srv = self.create_service(
             Trigger,
             'get_xiangqi_fen',
             self.get_fen_callback
         )
 
+        self.next_move_srv = self.create_service(
+            Trigger,
+            'get_next_move',
+            self.get_next_move_callback
+        )
+
         self.get_logger().info('🚀 Xiangqi ROS Service started!')
-        self.get_logger().info('📡 Service: /get_xiangqi_fen (std_srvs/srv/Trigger)')
-        self.get_logger().info('📋 Call service to get current FEN position')
-
-        # Load FEN từ file hoặc sử dụng position mặc định
-        self.load_initial_position()
-
-    def load_initial_position(self):
-        """Load position ban đầu hoặc từ file save"""
-        try:
-            # Có thể load từ file save state nếu có
-            save_file = os.path.join(os.path.dirname(
-                __file__), '..', 'saved_position.fen')
-            if os.path.exists(save_file):
-                with open(save_file, 'r') as f:
-                    fen = f.read().strip()
-                    if self.game_state.load_from_fen(fen):
-                        self.get_logger().info(
-                            f'✅ Loaded saved position: {fen}')
-                        return
-
-            # Nếu không có file save, sử dụng position mặc định
-            self.game_state.reset()
-            self.get_logger().info('🎯 Using default starting position')
-
-        except Exception as e:
-            self.get_logger().error(f'❌ Error loading position: {e}')
-            self.game_state.reset()
+        self.get_logger().info('📡 Services available:')
+        self.get_logger().info('  - /get_xiangqi_fen (get current FEN from shared state)')
+        self.get_logger().info('  - /get_next_move (get best move from shared engine results)')
+        self.get_logger().info('🔗 Reading data from shared state (main GUI)')
 
     def get_fen_callback(self, request, response):
         """
-        Service callback để trả về FEN hiện tại
+        Service callback để trả về FEN hiện tại từ shared state
 
         Args:
             request: Trigger request (empty)
@@ -70,25 +48,30 @@ class XiangqiRosService(Node):
             response với success=True và message=FEN string
         """
         try:
-            # Lấy FEN từ game state hiện tại
-            current_fen = self.game_state.to_fen()
+            # Lấy data từ shared state
+            game_info = get_for_ros()
 
-            if current_fen:
+            if game_info and 'fen' in game_info:
+                current_fen = game_info['fen']
+
                 response.success = True
                 response.message = current_fen
 
                 self.get_logger().info(f'📤 FEN requested: {current_fen}')
 
                 # Log thêm thông tin về position
-                player = 'Đỏ' if self.game_state.current_player == 'red' else 'Đen'
-                move_count = len(self.game_state.move_history)
+                current_player = game_info.get('current_player', 'unknown')
+                move_count = game_info.get('move_count', 0)
+                game_status = game_info.get('game_status', 'unknown')
+
+                player_vn = 'Đỏ' if current_player == 'red' else 'Đen'
                 self.get_logger().info(
-                    f'🎯 Current player: {player}, Moves: {move_count}')
+                    f'🎯 Current player: {player_vn}, Moves: {move_count}, Status: {game_status}')
 
             else:
                 response.success = False
-                response.message = "ERROR: Could not generate FEN"
-                self.get_logger().error('❌ Failed to generate FEN')
+                response.message = "ERROR: No game data available in shared state"
+                self.get_logger().error('❌ No FEN data in shared state')
 
         except Exception as e:
             response.success = False
@@ -97,31 +80,65 @@ class XiangqiRosService(Node):
 
         return response
 
-    def update_position(self, fen_string):
+    def get_next_move_callback(self, request, response):
         """
-        Cập nhật position từ external source (để tích hợp với GUI)
+        Service callback để trả về best move từ shared engine results
 
         Args:
-            fen_string: FEN string mới
+            request: Trigger request (empty)
+            response: Trigger response
+
+        Returns:
+            response với success=True và message=move notation (e.g., "e2e4")
         """
         try:
-            if self.game_state.load_from_fen(fen_string):
-                self.get_logger().info(f'🔄 Position updated: {fen_string}')
+            # Lấy data từ shared state
+            game_info = get_for_ros()
 
-                # Save position to file
-                save_file = os.path.join(os.path.dirname(
-                    __file__), '..', 'saved_position.fen')
-                os.makedirs(os.path.dirname(save_file), exist_ok=True)
-                with open(save_file, 'w') as f:
-                    f.write(fen_string)
+            if game_info:
+                best_move = game_info.get('best_move')
+                engine_results = game_info.get('engine_results', {})
 
-                return True
+                if best_move and best_move != 'None':
+                    response.success = True
+                    response.message = best_move
+
+                    self.get_logger().info(
+                        f'🤖 Best move from shared state: {best_move}')
+
+                    # Log thêm thông tin engine analysis
+                    current_player = game_info.get('current_player', 'unknown')
+                    player_vn = 'Đỏ' if current_player == 'red' else 'Đen'
+
+                    # Tìm engine info cho best move
+                    engine_info = ""
+                    for engine_name, result in engine_results.items():
+                        if result.get('bestmove') == best_move:
+                            evaluation = result.get('evaluation', 0)
+                            depth = result.get('depth', 0)
+                            nodes = result.get('nodes', 0)
+                            engine_info = f"from {engine_name} (eval:{evaluation:.2f}, depth:{depth}, nodes:{nodes})"
+                            break
+
+                    self.get_logger().info(
+                        f'🎯 Move for {player_vn} {engine_info}')
+
+                else:
+                    response.success = False
+                    response.message = "ERROR: No best move available in shared state"
+                    self.get_logger().error('❌ No best move in shared state')
+
             else:
-                self.get_logger().error(f'❌ Invalid FEN: {fen_string}')
-                return False
+                response.success = False
+                response.message = "ERROR: No game data available in shared state"
+                self.get_logger().error('❌ No game data in shared state')
+
         except Exception as e:
-            self.get_logger().error(f'❌ Error updating position: {e}')
-            return False
+            response.success = False
+            response.message = f"ERROR: {str(e)}"
+            self.get_logger().error(f'❌ Next move service error: {e}')
+
+        return response
 
 
 def main(args=None):
