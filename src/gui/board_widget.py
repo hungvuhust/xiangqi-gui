@@ -515,34 +515,11 @@ class BoardWidget(QWidget):
                             print(f"✓ Sẽ bắt quân {captured_piece}")
 
                         # Emit signal cho main window để GameState xử lý thực sự
-                        print(
-                            f"🚨 DEBUG: About to emit move_made signal - ({from_row},{from_col}) → ({row},{col})")
-                        print(
-                            f"🚨 DEBUG: BoardWidget current_player before emit: {self.current_player}")
                         self.move_made.emit(from_row, from_col, row, col)
-                        print(f"🚨 DEBUG: move_made signal emitted successfully")
-
-                        # Clear selection
-                        self.selected_square = None
-                        self.possible_moves = []
                     else:
+                        # Debug validation fail để hiểu lý do
                         print(
-                            f"❌ Nước đi không hợp lệ từ ({from_row},{from_col}) đến ({row},{col})")
-                        print(
-                            f"🚨 DEBUG: BoardWidget validation failed. current_player: {self.current_player}")
-
-                        # Nếu click vào quân khác của mình, chuyển selection
-                        piece = self.board_state[row][col]
-                        if piece is not None and temp_game_state._is_player_piece(piece, temp_game_state.current_player):
-                            self.selected_square = (row, col)
-                            self.possible_moves = self.get_possible_moves(
-                                row, col)
-                            print(
-                                f"🔄 Chuyển chọn sang quân {piece} tại ({row},{col})")
-                        else:
-                            # Clear selection
-                            self.selected_square = None
-                            self.possible_moves = []
+                            f"❌ Không phải lượt của quân {piece} (lượt hiện tại: {temp_game_state.current_player})")
 
                 self.update()  # Redraw board
 

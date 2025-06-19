@@ -363,9 +363,6 @@ class GameState:
         self.current_player = 'black' if self.current_player == 'red' else 'red'
         self.active_color = 'b' if self.active_color == 'w' else 'w'
 
-        print(
-            f"🔄 DEBUG: make_move() - Switch turn: {old_player} → {self.current_player}")
-
         # Update move history
         move_notation = f"{chr(ord('a') + from_col)}{from_row}{chr(ord('a') + to_col)}{to_row}"
         self.move_history.append(move_notation)

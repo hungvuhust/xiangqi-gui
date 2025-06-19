@@ -401,16 +401,8 @@ class MainWindow(QMainWindow):
 
     def on_move_made(self, from_row, from_col, to_row, to_col):
         """Xử lý khi thực hiện nước đi hợp lệ"""
-        print(
-            f"🎯 DEBUG: on_move_made() called - from ({from_row},{from_col}) to ({to_row},{to_col})")
-        print(
-            f"🎯 DEBUG: Before make_move - current_player: {self.game_state.current_player}")
-
         # Sử dụng GameState để thực hiện nước đi (đã bao gồm validation và history tracking)
         if self.game_state.make_move(from_row, from_col, to_row, to_col):
-            print(
-                f"🎯 DEBUG: After make_move - current_player: {self.game_state.current_player}")
-
             # ===== CRITICAL: Sync BoardWidget với GameState sau move thành công =====
 
             # 1. Sync board state từ GameState (GameState đã update board)
@@ -426,10 +418,6 @@ class MainWindow(QMainWindow):
 
             # 4. Update board widget display
             self.board_widget.update()
-
-            print(f"🔄 DEBUG: Synced BoardWidget after successful move")
-            print(
-                f"🔄 DEBUG: BoardWidget.current_player = {self.board_widget.current_player}")
 
             # Lấy thông tin move để hiển thị
             # Piece đã được di chuyển
@@ -476,11 +464,7 @@ class MainWindow(QMainWindow):
             # Update position cho multi-engine widget
             self._emit_position_changed()
 
-            print(
-                f"🎯 DEBUG: Move completed successfully. Turn switched to: {self.game_state.current_player}")
-
         else:
-            print("🎯 DEBUG: make_move failed - invalid move")
             self.update_status("❌ Nước đi không hợp lệ")
 
     def get_piece_name(self, piece):
@@ -566,10 +550,8 @@ class MainWindow(QMainWindow):
             self.update_status("❌ Không có nước đi để làm lại")
 
     def update_turn_label(self):
-        """Cập nhật label hiển thị lượt chơi"""
-        current_player = "Đỏ" if self.game_state.current_player == "red" else "Đen"
-        print(
-            f"🔄 DEBUG: update_turn_label() - current_player: {self.game_state.current_player} → {current_player}")
+        """Cập nhật label hiển thị lượt đi"""
+        current_player = 'Đỏ' if self.game_state.current_player == 'red' else 'Đen'
         self.turn_label.setText(f"Lượt: {current_player}")
 
     def update_status(self, message):
@@ -607,14 +589,6 @@ class MainWindow(QMainWindow):
                 if not success:
                     self.update_status("❌ FEN không hợp lệ")
                     return
-
-                print(
-                    f"🎯 DEBUG: Game state current_player: {self.game_state.current_player}")
-                print(
-                    f"🎯 DEBUG: Game state active_color: {getattr(self.game_state, 'active_color', 'Not set')}")
-                # First 3 pieces of row 0
-                print(
-                    f"🎯 DEBUG: Game state board: {self.game_state.board[0][:3]}")
 
                 self.game_info_widget.reset()
 
@@ -887,7 +861,6 @@ class MainWindow(QMainWindow):
         if mode == 'play':
             # Chuyển sang chế độ chơi - load FEN từ setup widget
             fen = self.setup_widget.get_current_fen()
-            print(f"🎯 DEBUG: Loading FEN from setup: {fen}")
 
             if fen:
                 try:
@@ -899,11 +872,6 @@ class MainWindow(QMainWindow):
                     if not success:
                         self.update_status("❌ FEN không hợp lệ")
                         return
-
-                    print(
-                        f"🎯 DEBUG: Game state current_player: {self.game_state.current_player}")
-                    print(
-                        f"🎯 DEBUG: Game state active_color: {getattr(self.game_state, 'active_color', 'Not set')}")
 
                     # Reset game state flags để đảm bảo chuyển lượt bình thường
                     self.game_state.game_over = False
@@ -922,8 +890,6 @@ class MainWindow(QMainWindow):
                     self.game_state.redo_captured_pieces = []
                     self.game_state.redo_move_history = []
 
-                    print(f"🎯 DEBUG: Reset game state flags and history")
-
                     # ===== CRITICAL: Sync BoardWidget hoàn toàn với GameState =====
 
                     # 1. Sync board state (deep copy để tránh reference issues)
@@ -932,8 +898,6 @@ class MainWindow(QMainWindow):
 
                     # 2. Force sync current_player (key fix)
                     self.board_widget.current_player = self.game_state.current_player
-                    print(
-                        f"🔄 DEBUG: Force synced BoardWidget.current_player = {self.board_widget.current_player}")
 
                     # 3. Clear board widget states
                     self.board_widget.selected_square = None
@@ -957,12 +921,6 @@ class MainWindow(QMainWindow):
                     self.update_status(
                         f"🎮 Đã chuyển sang chế độ chơi - Lượt: {player_name}")
 
-                    print(f"🎯 DEBUG: Setup to play transition completed.")
-                    print(
-                        f"🎯 DEBUG: GameState.current_player = {self.game_state.current_player}")
-                    print(
-                        f"🎯 DEBUG: BoardWidget.current_player = {self.board_widget.current_player}")
-
                 except Exception as e:
                     print(f"Lỗi load FEN: {e}")
                     import traceback
@@ -975,27 +933,19 @@ class MainWindow(QMainWindow):
             try:
                 # Lấy FEN hiện tại từ game state
                 current_fen = self.game_state.to_fen()
-                print(
-                    f"🎯 DEBUG: Switching to setup mode with current FEN: {current_fen}")
 
                 if current_fen:
                     # Load FEN vào setup widget để có thể chỉnh sửa trực tiếp
                     success = self.setup_widget.load_from_fen(current_fen)
                     if success:
-                        print(
-                            f"✅ DEBUG: Successfully loaded current FEN into setup widget")
                         self.update_status(
                             "🎯 Đã chuyển sang chế độ xếp cờ - Có thể chỉnh sửa vị trí hiện tại")
                     else:
-                        print(
-                            f"❌ DEBUG: Failed to load FEN into setup widget, using board_state fallback")
                         # Fallback: sync board state trực tiếp
                         self.setup_widget.set_board_state(
                             self.game_state.board)
                         self.update_status("🎯 Đã chuyển sang chế độ xếp cờ")
                 else:
-                    print(
-                        f"❌ DEBUG: No valid FEN from game state, using board_state fallback")
                     # Fallback: sync board state trực tiếp
                     self.setup_widget.set_board_state(self.game_state.board)
                     self.update_status("🎯 Đã chuyển sang chế độ xếp cờ")
@@ -1008,19 +958,14 @@ class MainWindow(QMainWindow):
 
     def on_tab_changed(self, index):
         """Xử lý khi user chuyển tab"""
-        print(f"🎯 DEBUG: Tab changed to index: {index}")
         if index == 2:  # Setup tab (🎯 Xếp Cờ)
             # Load FEN vào setup widget khi chuyển tab
             current_fen = self.game_state.to_fen()
-            print(
-                f"🎯 DEBUG: Loading FEN into setup widget from tab change: {current_fen}")
             success = self.setup_widget.load_from_fen(current_fen)
             if success:
-                print(f"✅ DEBUG: Successfully loaded FEN into setup widget")
                 self.update_status(
                     "🎯 Đã chuyển sang chế độ xếp cờ - Có thể chỉnh sửa vị trí hiện tại")
             else:
-                print(f"❌ DEBUG: Failed to load FEN, using board_state fallback")
                 # Fallback: sync board state trực tiếp
                 self.setup_widget.set_board_state(self.game_state.board)
                 self.update_status("🎯 Đã chuyển sang chế độ xếp cờ")
