@@ -495,9 +495,30 @@ class BoardWidget(QWidget):
                             print(
                                 f"❌ Không phải lượt của quân {piece} (lượt hiện tại: {self.current_player})")
                 else:
-                    # Thực hiện nước đi
+                    # Đã có quân được chọn
                     from_row, from_col = self.selected_square
 
+                    # Kiểm tra xem có click vào quân cùng phe không (để chọn quân khác)
+                    clicked_piece = self.board_state[row][col]
+                    if clicked_piece is not None:
+                        # Import GameState để kiểm tra
+                        from ..core.game_state import GameState
+                        temp_game_state = GameState()
+                        temp_game_state.board = [r[:]
+                                                 for r in self.board_state]
+                        temp_game_state.current_player = self.current_player
+
+                        # Nếu click vào quân cùng phe, chọn quân mới
+                        if temp_game_state._is_player_piece(clicked_piece, temp_game_state.current_player):
+                            self.selected_square = (row, col)
+                            self.possible_moves = self.get_possible_moves(
+                                row, col)
+                            print(
+                                f"🔄 Chuyển chọn sang quân {clicked_piece} tại ({row},{col}), có {len(self.possible_moves)} nước đi")
+                            self.update()
+                            return
+
+                    # Thực hiện nước đi
                     # Import GameState để validate
                     from ..core.game_state import GameState
                     temp_game_state = GameState()
@@ -515,34 +536,21 @@ class BoardWidget(QWidget):
                             print(f"✓ Sẽ bắt quân {captured_piece}")
 
                         # Emit signal cho main window để GameState xử lý thực sự
-                        print(
-                            f"🚨 DEBUG: About to emit move_made signal - ({from_row},{from_col}) → ({row},{col})")
-                        print(
-                            f"🚨 DEBUG: BoardWidget current_player before emit: {self.current_player}")
                         self.move_made.emit(from_row, from_col, row, col)
-                        print(f"🚨 DEBUG: move_made signal emitted successfully")
 
                         # Clear selection
                         self.selected_square = None
                         self.possible_moves = []
                     else:
-                        print(
-                            f"❌ Nước đi không hợp lệ từ ({from_row},{from_col}) đến ({row},{col})")
-                        print(
-                            f"🚨 DEBUG: BoardWidget validation failed. current_player: {self.current_player}")
-
-                        # Nếu click vào quân khác của mình, chuyển selection
-                        piece = self.board_state[row][col]
-                        if piece is not None and temp_game_state._is_player_piece(piece, temp_game_state.current_player):
-                            self.selected_square = (row, col)
-                            self.possible_moves = self.get_possible_moves(
-                                row, col)
-                            print(
-                                f"🔄 Chuyển chọn sang quân {piece} tại ({row},{col})")
-                        else:
-                            # Clear selection
+                        # Nước đi không hợp lệ
+                        # Nếu click vào ô trống, clear selection
+                        if clicked_piece is None:
+                            print(f"🔄 Click vào ô trống, bỏ chọn quân")
                             self.selected_square = None
                             self.possible_moves = []
+                        else:
+                            print(
+                                f"❌ Nước đi không hợp lệ từ ({from_row},{from_col}) đến ({row},{col})")
 
                 self.update()  # Redraw board
 
