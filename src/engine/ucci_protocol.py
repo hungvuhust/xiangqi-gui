@@ -32,6 +32,7 @@ class UCCIEngine:
         self.is_running = False
         self.engine_thread = None
         self.protocol_detected = False  # Flag để biết đã detect xong protocol
+        self._force_silence = False  # Flag để force dừng output
 
         # Callback functions
         self.on_bestmove: Optional[Callable[[str], None]] = None
@@ -120,6 +121,12 @@ class UCCIEngine:
         command = f"position fen {fen}"
         if moves:
             command += " moves " + " ".join(moves)
+
+        # Debug log để kiểm tra FEN
+        print(f"📍 [ENGINE] Setting position: {fen[:50]}...")
+        if moves:
+            print(f"📍 [ENGINE] With moves: {moves}")
+
         self.send_command(command)
 
     def go(self, depth: int = None, time_ms: int = None):
@@ -147,6 +154,72 @@ class UCCIEngine:
     def stop_search(self):
         """Dừng tìm kiếm"""
         self.send_command("stop")
+
+    def force_stop_analysis(self):
+        """THẬT SỰ DỪNG engine process - terminate hoàn toàn"""
+        print(f"🛑 THẬT SỰ DỪNG engine process: {self.engine_path}")
+
+        # Set silence flag NGAY LẬP TỨC để ngăn output
+        self._force_silence = True
+
+        # Gửi stop command trước (có thể engine sẽ ignore)
+        try:
+            self.send_command("stop")
+        except:
+            pass  # Ignore errors khi gửi stop
+
+        # THẬT SỰ DỪNG process NGAY LẬP TỨC
+        if self.process:
+            try:
+                print(f"🛑 Terminating process PID: {self.process.pid}")
+                # Terminate process ngay lập tức
+                self.process.terminate()
+
+                # Đợi tối đa 1 giây
+                try:
+                    self.process.wait(timeout=1)
+                    print(f"✅ Engine process terminated: {self.engine_path}")
+                except:
+                    # Force kill nếu terminate không work
+                    print(f"💀 Force killing process...")
+                    self.process.kill()
+                    self.process.wait(timeout=1)
+                    print(f"💀 Engine process killed: {self.engine_path}")
+            except Exception as e:
+                print(f"❌ Error stopping engine: {e}")
+
+        # Set flags để dừng hoàn toàn
+        self.is_running = False
+        self.process = None
+
+        print(f"🔇 Engine THẬT SỰ ĐÃ DỪNG: {self.engine_path}")
+
+    def restart_engine(self):
+        """Restart engine sau khi đã dừng"""
+        print(f"🔄 Restarting engine: {self.engine_path}")
+
+        # Cleanup trước
+        if self.process:
+            try:
+                self.process.terminate()
+                self.process.wait(timeout=1)
+            except:
+                pass
+
+        # Reset flags
+        self.is_running = False
+        self.process = None
+        self._force_silence = False
+        self.protocol_detected = False
+
+        # Start lại
+        success = self.start()
+        if success:
+            print(f"✅ Engine restarted successfully: {self.engine_path}")
+        else:
+            print(f"❌ Failed to restart engine: {self.engine_path}")
+
+        return success
 
     def make_move(self, move: str):
         """
@@ -229,6 +302,11 @@ class UCCIEngine:
 
                 line = line.strip()
                 if line:
+                    # Kiểm tra force silence flag
+                    if self._force_silence:
+                        # Silently ignore output khi force stopped
+                        continue
+
                     print(f"Nhận: {line}")
                     self._process_engine_output(line)
 

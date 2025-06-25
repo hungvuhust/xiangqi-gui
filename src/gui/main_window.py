@@ -391,6 +391,8 @@ class MainWindow(QMainWindow):
             self.on_multi_engine_hint_selected)
         self.multi_engine_widget.engine_arrows_changed.connect(
             self.on_multi_engine_arrows_changed)
+        self.multi_engine_widget.analysis_info_changed.connect(
+            self.on_analysis_info_changed)
 
         # Setup widget connections
         self.setup_widget.position_changed.connect(
@@ -420,10 +422,18 @@ class MainWindow(QMainWindow):
         if current_fen:
             engine_moves = self.convert_moves_to_engine_notation(
                 self.game_state.move_history)
-            print(f"📡 Position changed: {len(engine_moves)} moves")
+
+            print(f"📡 [MAIN] Position changed signal:")
+            print(f"📡 [MAIN] FEN: {current_fen}")
+            print(
+                f"📡 [MAIN] Board moves count: {len(self.game_state.move_history)}")
+            print(f"📡 [MAIN] Engine moves count: {len(engine_moves)}")
             if engine_moves:
-                # Show last 3 moves
-                print(f"📝 Latest moves: {engine_moves[-3:]}")
+                print(f"📡 [MAIN] Latest engine moves: {engine_moves[-3:]}")
+            else:
+                print(
+                    f"📡 [MAIN] ⚠️ NO MOVES - Chỉ có FEN (đúng cho new game/setup)")
+
             self.position_changed_signal.emit(current_fen, engine_moves)
 
             # Sync với ROS nếu có
@@ -949,6 +959,22 @@ class MainWindow(QMainWindow):
         """Xử lý khi multi-engine arrows thay đổi"""
         # Update board widget với arrows mới
         self.board_widget.set_multi_engine_arrows(arrows_data)
+
+    def on_analysis_info_changed(self, analysis_info: dict):
+        """Xử lý khi thông tin phân tích từ engines thay đổi"""
+        # Update board widget với thông tin phân tích mới
+        self.board_widget.set_engine_analysis_info(analysis_info)
+
+        # Log thông tin phân tích
+        if analysis_info:
+            for engine_name, info in analysis_info.items():
+                bestmove = info.get('bestmove', '')
+                evaluation = info.get('evaluation', 0.0)
+                depth = info.get('depth', 0)
+
+                if bestmove:
+                    self.update_status(
+                        f"🤖 {engine_name}: {bestmove} (eval: {evaluation:+.2f}, depth: {depth})")
 
     def on_setup_position_changed(self, fen):
         """Xử lý khi position thay đổi từ setup mode"""

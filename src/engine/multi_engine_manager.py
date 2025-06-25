@@ -111,9 +111,16 @@ class EngineWorker(threading.Thread):
                 fen = command.get('fen')
                 moves = command.get('moves', [])
                 if self.engine:
+                    print(
+                        f"📍 [WORKER] {self.engine_name}: Processing set_position command")
+                    print(f"📍 [WORKER] {self.engine_name}: New FEN: {fen}")
+                    print(f"📍 [WORKER] {self.engine_name}: New moves: {moves}")
+
                     # Kiểm tra nếu đang analyzing
                     was_analyzing = self.last_result.get(
                         'status') == 'analyzing'
+                    print(
+                        f"📍 [WORKER] {self.engine_name}: Was analyzing: {was_analyzing}")
 
                     # Nếu đang analyzing, dừng trước khi set position mới
                     if was_analyzing:
@@ -125,8 +132,11 @@ class EngineWorker(threading.Thread):
                             self.last_result['ignore_old_info'] = True
 
                     # Set position mới
+                    print(
+                        f"📍 [WORKER] {self.engine_name}: Calling engine.set_position()...")
                     self.engine.set_position(fen, moves)
-                    print(f"📍 {self.engine_name}: Set position")
+                    print(
+                        f"📍 [WORKER] {self.engine_name}: ✅ Position set successfully")
 
                     # Restart analysis với delay nếu trước đó đang analyzing (giống single engine)
                     if was_analyzing:
@@ -142,6 +152,8 @@ class EngineWorker(threading.Thread):
                                     self.last_result['ignore_old_info'] = False
                                 # Set position lại (giống single engine)
                                 self.engine.set_position(fen, moves)
+                                print(
+                                    f"📍 {self.engine_name}: Set position in delayed restart - FEN: {fen[:50]}...")
                                 # Bắt đầu analysis mới
                                 self.engine.go_infinite()
                                 print(
@@ -164,18 +176,77 @@ class EngineWorker(threading.Thread):
                         f"🤖 {self.engine_name}: Requested hint (depth {depth})")
 
             elif cmd_type == 'start_analysis':
+                fen = command.get('fen')
+                moves = command.get('moves', [])
+
+                print(
+                    f"🔄 [WORKER] {self.engine_name}: Received start_analysis command")
+                print(
+                    f"🔄 [WORKER] {self.engine_name}: FEN provided: {bool(fen)}")
+                if fen:
+                    print(f"🔄 [WORKER] {self.engine_name}: FEN: {fen}")
+                    print(f"🔄 [WORKER] {self.engine_name}: Moves: {moves}")
+
                 if self.engine:
+                    # Nếu engine đã bị dừng, restart lại
+                    if not self.engine.is_running:
+                        print(
+                            f"🔄 {self.engine_name}: Engine was stopped, restarting...")
+                        success = self.engine.restart_engine()
+                        if not success:
+                            print(
+                                f"❌ {self.engine_name}: Failed to restart engine")
+                            return
+
+                    # QUAN TRỌNG: Set position TRƯỚC KHI start analysis
+                    if fen:
+                        print(
+                            f"✅ [WORKER] {self.engine_name}: Setting position before analysis...")
+                        self.engine.set_position(fen, moves)
+                        print(
+                            f"✅ [WORKER] {self.engine_name}: Position set successfully")
+                    else:
+                        print(
+                            f"⚠️ [WORKER] {self.engine_name}: No FEN provided - using default position")
+
+                    # Reset ignore flag và status trước khi start
                     with self.result_lock:
+                        self.last_result['ignore_old_info'] = False
                         self.last_result['status'] = 'analyzing'
+                        # Reset evaluation để không hiển thị kết quả cũ
+                        self.last_result['evaluation'] = 0.0
+                        self.last_result['depth'] = 0
+                        self.last_result['nodes'] = 0
+
+                    # Bắt đầu analysis với position đã được set
                     self.engine.go_infinite()
-                    print(f"🔍 {self.engine_name}: Started analysis")
+                    print(
+                        f"✅ [WORKER] {self.engine_name}: Started analysis with correct position!")
 
             elif cmd_type == 'stop_analysis':
                 if self.engine:
-                    self.engine.stop_search()
+                    # THỰC SỰ FORCE STOP - không còn output nữa
+                    print(
+                        f"🛑 {self.engine_name}: THỰC SỰ FORCE STOPPING - no more output...")
+
+                    # Sử dụng force_stop_analysis thay vì stop_search
+                    self.engine.force_stop_analysis()
+
+                    # Set flag để ignore mọi thông tin từ engine sau khi stop
                     with self.result_lock:
-                        self.last_result['status'] = 'ready'
-                    print(f"⏹️ {self.engine_name}: Stopped analysis")
+                        # Trạng thái đặc biệt
+                        self.last_result['status'] = 'stopped'
+                        self.last_result['ignore_old_info'] = True
+                        # Clear bestmove để không hiển thị gợi ý cũ
+                        self.last_result['bestmove'] = None
+                        self.last_result['ponder'] = None
+                        self.last_result['evaluation'] = 0.0
+                        self.last_result['depth'] = 0
+                        self.last_result['nodes'] = 0
+                        self.last_result['pv'] = []
+
+                    print(
+                        f"💀 {self.engine_name}: Engine process TERMINATED - thật sự đã dừng!")
 
             elif cmd_type == 'stop':
                 self.running = False
@@ -187,9 +258,12 @@ class EngineWorker(threading.Thread):
     def _handle_bestmove(self, bestmove_line: str):
         """Handle bestmove từ engine"""
         try:
-            # Kiểm tra nếu đang ignore old info (giống single engine)
+            # Kiểm tra nếu đang ignore old info hoặc đã bị stop
             with self.result_lock:
-                if self.last_result.get('ignore_old_info', False):
+                if (self.last_result.get('ignore_old_info', False) or
+                        self.last_result.get('status') == 'stopped'):
+                    print(
+                        f"🚫 {self.engine_name}: Ignoring bestmove - engine is stopped")
                     return
 
             # Parse bestmove line: "bestmove e2e4 ponder d7d5"
@@ -220,9 +294,11 @@ class EngineWorker(threading.Thread):
     def _handle_info(self, info_line: str):
         """Handle info từ engine"""
         try:
-            # Kiểm tra nếu đang ignore old info (giống single engine)
+            # Kiểm tra nếu đang ignore old info hoặc đã bị stop
             with self.result_lock:
-                if self.last_result.get('ignore_old_info', False):
+                if (self.last_result.get('ignore_old_info', False) or
+                        self.last_result.get('status') == 'stopped'):
+                    # Không log để tránh spam khi engine vẫn gửi info sau stop
                     return
 
             # Parse info line
@@ -394,18 +470,27 @@ class MultiEngineManager(QObject):
             return list(self.workers.keys())
 
     def set_position_all(self, fen: str, moves: List[str] = None):
-        """Đặt position cho tất cả engines"""
+        """Đặt position cho tất cả engines - FORCE update"""
+        moves = moves or []
+
+        print(f"📍 [MULTI-ENGINE] FORCE setting position for all engines:")
+        print(f"📍 [MULTI-ENGINE] FEN: {fen}")
+        print(f"📍 [MULTI-ENGINE] Moves count: {len(moves)}")
+        print(f"📍 [MULTI-ENGINE] Moves: {moves}")
+
         command = {
             'type': 'set_position',
             'fen': fen,
-            'moves': moves or []
+            'moves': moves
         }
 
         with self.worker_lock:
-            for worker in self.workers.values():
+            for worker_name, worker in self.workers.items():
+                print(f"📍 [MULTI-ENGINE] Sending position to {worker_name}...")
                 worker.send_command(command)
 
-        print(f"📍 Set position for {len(self.workers)} engines")
+        print(
+            f"📍 [MULTI-ENGINE] Position command sent to {len(self.workers)} engines")
 
     def get_hint_all(self, depth: int = 8):
         """Yêu cầu hint từ tất cả engines"""
@@ -421,23 +506,48 @@ class MultiEngineManager(QObject):
         print(
             f"🤖 Requested hints from {len(self.workers)} engines (depth {depth})")
 
-    def start_analysis_all(self):
-        """Bắt đầu analysis cho tất cả engines"""
-        command = {'type': 'start_analysis'}
+    def start_analysis_all(self, fen: str = None, moves: List[str] = None):
+        """Bắt đầu analysis cho tất cả engines với FEN hiện tại"""
+        print(f"🔍 [MULTI-ENGINE] Starting analysis for all engines...")
+        if fen:
+            print(f"🔍 [MULTI-ENGINE] With FEN: {fen}")
+            print(f"🔍 [MULTI-ENGINE] With moves: {moves or []}")
+        else:
+            print(
+                "⚠️ [MULTI-ENGINE] No FEN provided - engines may use wrong position!")
+
+        command = {
+            'type': 'start_analysis',
+            'fen': fen,
+            'moves': moves or []
+        }
 
         with self.worker_lock:
-            for worker in self.workers.values():
+            for worker_name, worker in self.workers.items():
+                print(
+                    f"🔍 [MULTI-ENGINE] Starting analysis for {worker_name}...")
                 worker.send_command(command)
 
-        print(f"🔍 Started analysis for {len(self.workers)} engines")
+        print(
+            f"🔍 [MULTI-ENGINE] Analysis start command sent to {len(self.workers)} engines")
 
     def stop_analysis_all(self):
-        """Dừng analysis cho tất cả engines"""
-        command = {'type': 'stop_analysis'}
+        """Dừng analysis cho tất cả engines - THẬT SỰ TERMINATE"""
+        print("🛑 FORCE STOPPING analysis for all engines...")
 
         with self.worker_lock:
             for worker in self.workers.values():
-                worker.send_command(command)
+                print(f"🛑 Force stopping {worker.engine_name}...")
+
+                # Set result status to stopped NGAY LẬP TỨC
+                with worker.result_lock:
+                    worker.last_result['status'] = 'stopped'
+                    worker.last_result['ignore_old_info'] = True
+
+                # Send force terminate command
+                worker.send_command({'type': 'force_terminate'})
+
+        print(f"🛑 FORCE TERMINATE command sent to {len(self.workers)} engines")
 
         print(f"⏹️ Stopped analysis for {len(self.workers)} engines")
 

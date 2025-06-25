@@ -23,6 +23,8 @@ class MultiEngineWidget(QWidget):
     hint_selected = pyqtSignal(str, str)  # (engine_name, move)
     # {engine_name: [(from, to, color)]}
     engine_arrows_changed = pyqtSignal(dict)
+    # {engine_name: {'bestmove': str, 'ponder': str, 'evaluation': float, 'depth': int}}
+    analysis_info_changed = pyqtSignal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -307,47 +309,102 @@ class MultiEngineWidget(QWidget):
         print(f"🔄 Toggle analysis - new state: {self.is_analysis_running}")
 
     def _start_analysis(self):
-        """Bắt đầu phân tích liên tục (giống chế độ cơ bản)"""
+        """Bắt đầu phân tích liên tục - LUÔN lấy FEN hiện tại"""
         active_engines = self.multi_engine_manager.get_active_engines()
         if not active_engines:
             QMessageBox.warning(
                 self, "Lỗi", "❌ Chưa có engine nào được thêm!\nVui lòng thêm engine trước khi phân tích.")
             return
 
-        if not self.current_fen:
+        # LUÔN LẤY FEN HIỆN TẠI từ main window - KHÔNG dùng cache cũ
+        print("🔄 [MULTI-ENGINE] FORCE lấy FEN hiện tại từ main window...")
+        current_fen, current_moves = self.get_current_position_from_main_window()
+
+        if not current_fen:
             QMessageBox.warning(
-                self, "Lỗi", "❌ Chưa có vị trí bàn cờ!\nVui lòng đặt vị trí bàn cờ trước.")
+                self, "Lỗi", "❌ Không thể lấy FEN hiện tại từ main window!\nVui lòng kiểm tra lại vị trí bàn cờ.")
             return
+
+        # FORCE UPDATE current position - clear cache cũ
+        print(f"🔄 [MULTI-ENGINE] CLEARING old cache...")
+        print(
+            f"🔄 [MULTI-ENGINE] Old FEN: {getattr(self, 'current_fen', 'None')}")
+        print(f"🔄 [MULTI-ENGINE] New FEN: {current_fen}")
+
+        self.current_fen = current_fen
+        self.current_moves = current_moves or []
 
         print(
             f"🔍 Bắt đầu phân tích liên tục với {len(active_engines)} engines")
+        print(f"📍 [MULTI-ENGINE] FEN THẬT SỰ HIỆN TẠI: {current_fen}")
+        print(f"📝 [MULTI-ENGINE] Moves HIỆN TẠI: {current_moves}")
 
-        # Set position và bắt đầu infinite analysis
-        self.multi_engine_manager.set_position_all(
-            self.current_fen, self.current_moves)
-        self.multi_engine_manager.start_analysis_all()
+        # FORCE set position mới cho tất cả engines
+        print("🔄 [MULTI-ENGINE] FORCE setting new position to all engines...")
+        self.multi_engine_manager.set_position_all(current_fen, current_moves)
+
+        # Đợi một chút để engines xử lý position
+        import time
+        time.sleep(0.1)
+
+        # Bắt đầu infinite analysis VỚI FEN HIỆN TẠI
+        print("🔄 [MULTI-ENGINE] Starting infinite analysis WITH CURRENT FEN...")
+        self.multi_engine_manager.start_analysis_all(
+            current_fen, current_moves)
 
         self.is_analysis_running = True
         self.toggle_analysis_btn.setText("⏹️ Dừng Phân Tích")
 
-        # Start update timer với tần suất thấp hơn
+        # Start update timer
         self.update_timer.start()
 
-        print("✅ Đã bắt đầu phân tích liên tục")
+        print("✅ Đã bắt đầu phân tích liên tục với FEN THẬT SỰ HIỆN TẠI")
+        self._log_message(
+            f"🔍 Bắt đầu phân tích với FEN: {current_fen[:30]}...")
 
     def _stop_analysis(self):
-        """Dừng phân tích liên tục"""
-        print("⏹️ Dừng phân tích liên tục")
+        """Dừng phân tích liên tục - THẬT SỰ TERMINATE ENGINES"""
+        print("⏹️ FORCE stopping phân tích liên tục...")
 
+        # Log danh sách engines sẽ dừng
+        active_engines = self.multi_engine_manager.get_active_engines()
+        print(f"🛑 Stopping {len(active_engines)} engines: {active_engines}")
+
+        # THẬT SỰ FORCE STOP - terminate engine processes
+        print("🛑 [MULTI-ENGINE] THẬT SỰ TERMINATE engine processes...")
+        with self.multi_engine_manager.worker_lock:
+            for worker in self.multi_engine_manager.workers.values():
+                if worker.engine:
+                    print(
+                        f"🛑 [MULTI-ENGINE] Force terminating {worker.engine_name}...")
+                    worker.engine.force_stop_analysis()
+
+                    # Set worker status to stopped
+                    with worker.result_lock:
+                        worker.last_result['status'] = 'stopped'
+                        worker.last_result['ignore_old_info'] = True
+
+        # Stop analysis all (backup)
         self.multi_engine_manager.stop_analysis_all()
 
+        # Update UI state
         self.is_analysis_running = False
-        self.toggle_analysis_btn.setText("🔍 Bắt Đầu Phân Tích")
+        self.toggle_analysis_btn.setText("▶️ Bắt Đầu Phân Tích")
 
         # Stop update timer
         self.update_timer.stop()
 
-        print("✅ Đã dừng phân tích liên tục")
+        # Clear results to show stopped state
+        self._clear_all_results()
+
+        # Force update UI ngay lập tức để hiển thị trạng thái "stopped"
+        self._update_display()
+
+        # Log message to engine log
+        self._log_message(
+            "🛑 ĐÃ TERMINATE TẤT CẢ ENGINE PROCESSES - Engines đã dừng hoàn toàn!")
+
+        print("✅ ĐÃ TERMINATE engine processes - không còn output nào nữa!")
 
     def _get_hints(self):
         """Lấy gợi ý từ tất cả engine"""
@@ -391,6 +448,7 @@ class MultiEngineWidget(QWidget):
         """Update hiển thị kết quả"""
         self._update_results_table()
         self._update_arrows()
+        self._update_analysis_info()
 
     def _update_results_table(self):
         """Update bảng kết quả"""
@@ -450,8 +508,18 @@ class MultiEngineWidget(QWidget):
             pv_text = " ".join(pv[:5]) if pv else "-"  # Hiển thị 5 nước đầu
             self.results_table.setItem(row, 6, QTableWidgetItem(pv_text))
 
-            # Status
-            status = "Đang chạy" if self.is_analysis_running else "Sẵn sàng"
+            # Status - hiển thị status thực tế từ engine
+            engine_status = result.get('status', 'unknown')
+            if engine_status == 'stopped':
+                status = "⏹️ Đã dừng"
+            elif engine_status == 'analyzing':
+                status = "🔍 Đang phân tích"
+            elif engine_status == 'ready':
+                status = "✅ Sẵn sàng"
+            elif engine_status == 'thinking':
+                status = "🤔 Đang suy nghĩ"
+            else:
+                status = "❓ Không rõ"
             self.results_table.setItem(row, 7, QTableWidgetItem(status))
 
     def _update_arrows(self):
@@ -513,6 +581,34 @@ class MultiEngineWidget(QWidget):
             print(f"🏹 Updating arrows for {len(arrows_data)} engines")
             self.engine_arrows_changed.emit(arrows_data)
 
+    def _update_analysis_info(self):
+        """Update thông tin phân tích cho board widget"""
+        results = self.multi_engine_manager.get_results()
+
+        if not results:
+            self.analysis_info_changed.emit({})
+            return
+
+        analysis_info = {}
+
+        for engine_name, result in results.items():
+            bestmove = result.get('bestmove', '')
+            ponder = result.get('ponder', '')
+            evaluation = result.get('evaluation', 0.0)
+            depth = result.get('depth', 0)
+
+            # Chỉ gửi info nếu có bestmove hợp lệ
+            if bestmove and bestmove != 'none' and bestmove != '-':
+                analysis_info[engine_name] = {
+                    'bestmove': bestmove,
+                    'ponder': ponder,
+                    'evaluation': evaluation,
+                    'depth': depth
+                }
+
+        if analysis_info:
+            self.analysis_info_changed.emit(analysis_info)
+
     def _update_arrows_immediate(self):
         """Update arrows với throttling để tránh update quá thường xuyên"""
         if self.show_arrows_cb.isChecked():
@@ -567,6 +663,156 @@ class MultiEngineWidget(QWidget):
         self.engine_log.clear()
         print("🗑️ Cleared engine logs")
 
+    def _clear_all_results(self):
+        """Clear tất cả results UI và arrows - hiển thị trạng thái STOPPED"""
+        try:
+            print("🧹 [MULTI-ENGINE] Clearing all UI results and arrows...")
+
+            # Clear arrows ngay lập tức
+            if hasattr(self, 'engine_arrows'):
+                self.engine_arrows.clear()
+                self.engine_arrows_changed.emit({})  # Emit empty arrows
+            else:
+                # Emit empty arrows nếu chưa có engine_arrows
+                self.engine_arrows_changed.emit({})
+
+            # Clear results table và hiển thị trạng thái "STOPPED"
+            active_engines = self.multi_engine_manager.get_active_engines()
+            self.results_table.setRowCount(len(active_engines))
+
+            for row, engine_name in enumerate(active_engines):
+                # Engine name
+                self.results_table.setItem(
+                    row, 0, QTableWidgetItem(engine_name))
+
+                # Protocol (giữ nguyên nếu có)
+                self.results_table.setItem(row, 1, QTableWidgetItem("UCCI"))
+
+                # Evaluation = STOPPED
+                stopped_item = QTableWidgetItem("🛑 STOPPED")
+                stopped_item.setToolTip("Engine đã dừng phân tích")
+                self.results_table.setItem(row, 2, stopped_item)
+
+                # Depth = 0
+                self.results_table.setItem(row, 3, QTableWidgetItem("0"))
+
+                # Best move = STOPPED
+                self.results_table.setItem(
+                    row, 4, QTableWidgetItem("🛑 STOPPED"))
+
+                # Nodes = 0
+                self.results_table.setItem(row, 5, QTableWidgetItem("0"))
+
+            print("✅ [MULTI-ENGINE] Results table updated with STOPPED status")
+
+            # Log message
+            self._log_message(
+                "🛑 TẤT CẢ ENGINES ĐÃ DỪNG - UI cleared và hiển thị trạng thái STOPPED")
+
+            print(
+                "✅ [MULTI-ENGINE] All UI results cleared and STOPPED status displayed")
+
+        except Exception as e:
+            print(f"❌ [MULTI-ENGINE] Error clearing UI results: {e}")
+
+    def save_current_engines(self):
+        """Lưu lại thông tin engines hiện tại"""
+        try:
+            self.saved_engines = []
+
+            with self.multi_engine_manager.worker_lock:
+                for name, worker in self.multi_engine_manager.workers.items():
+                    engine_info = {
+                        'name': name,
+                        'path': worker.engine_path if hasattr(worker, 'engine_path') else None
+                    }
+                    self.saved_engines.append(engine_info)
+                    print(
+                        f"💾 [MULTI-ENGINE] Saved engine: {name} -> {engine_info['path']}")
+
+            print(f"💾 [MULTI-ENGINE] Saved {len(self.saved_engines)} engines")
+            self._log_message(f"💾 Saved {len(self.saved_engines)} engines")
+
+        except Exception as e:
+            print(f"❌ [MULTI-ENGINE] Error saving engines: {e}")
+            self.saved_engines = []
+
+    def restore_saved_engines(self):
+        """Restore lại engines đã lưu"""
+        try:
+            if not hasattr(self, 'saved_engines') or not self.saved_engines:
+                print("⚠️ [MULTI-ENGINE] No saved engines to restore")
+                self._add_default_engines()  # Fallback
+                return
+
+            print(
+                f"🔧 [MULTI-ENGINE] Restoring {len(self.saved_engines)} saved engines...")
+
+            restored_count = 0
+            for engine_info in self.saved_engines:
+                name = engine_info.get('name')
+                path = engine_info.get('path')
+
+                if name and path:
+                    if self.multi_engine_manager.add_engine(name, path):
+                        print(f"✅ [MULTI-ENGINE] Restored engine: {name}")
+                        self._log_message(f"✅ Restored engine: {name}")
+                        restored_count += 1
+                    else:
+                        print(
+                            f"❌ [MULTI-ENGINE] Failed to restore engine: {name}")
+                        self._log_message(
+                            f"❌ Failed to restore engine: {name}")
+                else:
+                    print(
+                        f"⚠️ [MULTI-ENGINE] Invalid engine info: {engine_info}")
+
+            # UI sẽ tự động update khi engines được add
+
+            print(
+                f"✅ [MULTI-ENGINE] Restored {restored_count}/{len(self.saved_engines)} engines")
+            self._log_message(
+                f"✅ Restored {restored_count}/{len(self.saved_engines)} engines")
+
+        except Exception as e:
+            print(f"❌ [MULTI-ENGINE] Error restoring engines: {e}")
+            self._log_message(f"❌ Error restoring engines: {e}")
+            # Fallback to default engines
+            self._add_default_engines()
+
+    def _add_default_engines(self):
+        """Add lại default engines sau khi clear (fallback method)"""
+        try:
+            print("🔧 [MULTI-ENGINE] Adding default engines...")
+
+            # Add Pikafish engine
+            pikafish_path = "./engines/Pikafish/pikafish"
+            if self.multi_engine_manager.add_engine("Pikafish", pikafish_path):
+                print("✅ [MULTI-ENGINE] Added Pikafish engine")
+                self._log_message("✅ Added Pikafish engine")
+            else:
+                print("❌ [MULTI-ENGINE] Failed to add Pikafish engine")
+                self._log_message("❌ Failed to add Pikafish engine")
+
+            # Add Fairy-Stockfish engine if exists
+            fairy_path = "./engines/Fairy-Stockfish/fairy-stockfish"
+            import os
+            if os.path.exists(fairy_path):
+                if self.multi_engine_manager.add_engine("Fairy-Stockfish", fairy_path):
+                    print("✅ [MULTI-ENGINE] Added Fairy-Stockfish engine")
+                    self._log_message("✅ Added Fairy-Stockfish engine")
+                else:
+                    print("❌ [MULTI-ENGINE] Failed to add Fairy-Stockfish engine")
+                    self._log_message("❌ Failed to add Fairy-Stockfish engine")
+
+            # UI sẽ tự động update khi engines được add
+
+            print("✅ [MULTI-ENGINE] Default engines added")
+
+        except Exception as e:
+            print(f"❌ [MULTI-ENGINE] Error adding default engines: {e}")
+            self._log_message(f"❌ Error adding default engines: {e}")
+
     def _log_message(self, message: str):
         """Thêm message vào engine log"""
         from datetime import datetime
@@ -586,7 +832,7 @@ class MultiEngineWidget(QWidget):
         super().closeEvent(event)
 
     def get_current_position_from_main_window(self):
-        """Lấy position hiện tại từ main window"""
+        """Lấy position hiện tại từ main window - FORCE lấy FEN thật"""
         try:
             # Tìm main window qua QApplication
             from PyQt5.QtWidgets import QApplication
@@ -594,15 +840,36 @@ class MultiEngineWidget(QWidget):
             if app:
                 for widget in app.topLevelWidgets():
                     if hasattr(widget, 'game_state') and hasattr(widget, 'convert_moves_to_engine_notation'):
+                        # FORCE lấy FEN hiện tại thật sự
                         current_fen = widget.game_state.to_fen()
                         current_moves = widget.convert_moves_to_engine_notation(
                             widget.game_state.move_history)
-                        print(f"🔄 Lấy position từ main window: {current_fen}")
-                        print(f"🔄 Moves: {current_moves}")
+
+                        print(f"🔄 [GET_POSITION] THẬT SỰ lấy từ main window:")
+                        print(f"🔄 [GET_POSITION] Current FEN: {current_fen}")
+                        print(
+                            f"🔄 [GET_POSITION] Move count: {len(current_moves)}")
+                        print(f"🔄 [GET_POSITION] Moves: {current_moves}")
+                        print(
+                            f"🔄 [GET_POSITION] Game state player: {getattr(widget.game_state, 'current_player', 'unknown')}")
+
+                        # Validation
+                        if not current_fen or current_fen.strip() == "":
+                            print("❌ [GET_POSITION] FEN is empty!")
+                            return None, None
+
+                        if "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR" in current_fen:
+                            print(
+                                "⚠️ [GET_POSITION] Detected INITIAL position - this might be wrong!")
+
                         return current_fen, current_moves
+
+            print("❌ [GET_POSITION] Could not find main window with game_state")
             return None, None
         except Exception as e:
-            print(f"❌ Lỗi khi lấy position từ main window: {e}")
+            print(f"❌ [GET_POSITION] Lỗi khi lấy position từ main window: {e}")
+            import traceback
+            traceback.print_exc()
             return None, None
 
     def set_position(self, fen: str, moves: List[str] = None):
@@ -647,3 +914,75 @@ class MultiEngineWidget(QWidget):
 
         # Update sẽ được xử lý ngay lập tức để arrows nhanh hơn
         self._update_arrows_immediate()
+
+    def reload_engines_with_new_position(self, fen: str, moves: List[str] = None):
+        """Reload engines với position mới - XÓA TOÀN BỘ → LOAD LẠI → BẬT PHÂN TÍCH"""
+        try:
+            print(f"🔄 [MULTI-ENGINE] ===== XÓA & LOAD LẠI ENGINES =====")
+            print(f"🔄 [MULTI-ENGINE] New FEN: {fen}")
+            print(f"🔄 [MULTI-ENGINE] New moves: {moves}")
+
+            # 1. LƯU LẠI danh sách engines hiện tại
+            print("💾 [MULTI-ENGINE] Lưu lại danh sách engines...")
+            self.save_current_engines()
+
+            if not hasattr(self, 'saved_engines') or not self.saved_engines:
+                print("⚠️ [MULTI-ENGINE] No engines to reload")
+                return
+
+            print(
+                f"💾 [MULTI-ENGINE] Đã lưu {len(self.saved_engines)} engines: {[e['name'] for e in self.saved_engines]}")
+
+            # 2. XÓA TOÀN BỘ engines khỏi danh sách
+            print("🗑️ [MULTI-ENGINE] XÓA TOÀN BỘ engines...")
+            self.multi_engine_manager.stop_all()  # Stop và clear tất cả
+
+            # Clear UI
+            self._clear_all_results()
+
+            # Stop analysis UI state
+            self.is_analysis_running = False
+            self.toggle_analysis_btn.setText("▶️ Bắt Đầu Phân Tích")
+            self.update_timer.stop()
+
+            print("✅ [MULTI-ENGINE] Đã xóa toàn bộ engines")
+
+            # 3. Đợi một chút để đảm bảo cleanup hoàn tất
+            import time
+            time.sleep(0.3)
+
+            # 4. LOAD LẠI engines đã lưu
+            print("🔄 [MULTI-ENGINE] LOAD LẠI engines...")
+            self.restore_saved_engines()
+
+            # 5. Đợi engines khởi động
+            time.sleep(0.5)
+            print("⏳ [MULTI-ENGINE] Đợi engines khởi động...")
+
+            # 6. SET position mới cho tất cả engines
+            print(f"📍 [MULTI-ENGINE] SET position mới cho engines...")
+            self.current_fen = fen
+            self.current_moves = moves or []
+            self.multi_engine_manager.set_position_all(fen, moves)
+
+            # 7. BẬT LẠI phân tích với position mới
+            print("🚀 [MULTI-ENGINE] BẬT LẠI phân tích với position mới...")
+            self.multi_engine_manager.start_analysis_all()
+            self.is_analysis_running = True
+
+            # 8. Update UI
+            self.toggle_analysis_btn.setText("⏹️ Dừng Phân Tích")
+            self.update_timer.start()
+
+            active_engines = self.multi_engine_manager.get_active_engines()
+            print(
+                f"✅ [MULTI-ENGINE] Successfully XÓA & LOAD LẠI {len(active_engines)} engines")
+            self._log_message(
+                f"🔄 XÓA & LOAD LẠI {len(active_engines)} engines với position mới")
+
+        except Exception as e:
+            print(
+                f"❌ [MULTI-ENGINE] Error trong quá trình xóa & load lại: {e}")
+            import traceback
+            traceback.print_exc()
+            self._log_message(f"❌ Error xóa & load lại engines: {e}")

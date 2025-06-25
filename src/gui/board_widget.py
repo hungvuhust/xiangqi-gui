@@ -9,6 +9,7 @@ from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QSize, QRect, QRectF
 from PyQt5.QtGui import QPainter, QPen, QBrush, QPixmap, QFont, QColor
 from ..utils.constants import *
 from ..utils.svg_renderer import image_renderer
+from ..utils.constants import format_move_chinese_style
 
 
 class BoardWidget(QWidget):
@@ -36,6 +37,10 @@ class BoardWidget(QWidget):
 
         # Multi-engine arrows
         self.multi_engine_arrows = {}  # {engine_name: [(from, to, color)]}
+
+        # Engine analysis info for display
+        # {engine_name: {'bestmove': str, 'ponder': str, 'evaluation': float, 'depth': int}}
+        self.engine_analysis_info = {}
 
         # SVG pixmaps cache
         self.board_pixmap = None
@@ -153,6 +158,9 @@ class BoardWidget(QWidget):
 
         # Vẽ coordinates ở 4 phía bàn cờ
         self._draw_coordinates(painter)
+
+        # Vẽ engine analysis info ở góc trái trên
+        self._draw_engine_analysis_info(painter)
 
         painter.end()
 
@@ -1234,6 +1242,22 @@ class BoardWidget(QWidget):
         self.multi_engine_arrows.clear()
         self.update()
 
+    def set_engine_analysis_info(self, analysis_data: dict):
+        """
+        Set engine analysis info để hiển thị ở góc trái trên
+
+        Args:
+            analysis_data: {engine_name: {'bestmove': str,
+                'ponder': str, 'evaluation': float, 'depth': int}}
+        """
+        self.engine_analysis_info = analysis_data
+        self.update()
+
+    def clear_engine_analysis_info(self):
+        """Clear engine analysis info"""
+        self.engine_analysis_info = {}
+        self.update()
+
     def _draw_multi_engine_arrows(self, painter):
         """Vẽ mũi tên từ nhiều engine với màu và style khác nhau"""
         if not self.multi_engine_arrows:
@@ -1439,3 +1463,145 @@ class BoardWidget(QWidget):
             text_color = QColor(0, 0, 0, 255 if is_current_turn else 180)
             painter.setPen(QPen(text_color))
             painter.drawText(text_rect, Qt.AlignCenter, short_label)
+
+    def _draw_engine_analysis_info(self, painter):
+        """Vẽ thông tin phân tích engine ở góc trái trên"""
+        if not self.engine_analysis_info:
+            return
+
+        # Color mapping cho engines (giống với arrows)
+        color_map = {
+            'red': QColor(255, 0, 0),
+            'blue': QColor(0, 0, 255),
+            'green': QColor(0, 200, 0),
+            'orange': QColor(255, 165, 0),
+            'purple': QColor(128, 0, 128),
+            'brown': QColor(165, 42, 42),
+            'cyan': QColor(0, 255, 255),
+            'magenta': QColor(255, 0, 255)
+        }
+
+        # Set font và style
+        painter.setFont(QFont("Arial", 10, QFont.Bold))
+
+        # Vị trí bắt đầu ở góc trái trên
+        start_x = 10
+        start_y = 20
+        line_height = 18
+
+        # Background semi-transparent
+        info_lines = []
+        engine_colors = {}  # Lưu màu cho mỗi engine
+
+        # Assign màu cho mỗi engine
+        engine_index = 0
+        base_colors = list(color_map.keys())
+        for engine_name in self.engine_analysis_info.keys():
+            color_name = base_colors[engine_index % len(base_colors)]
+            engine_colors[engine_name] = color_map[color_name]
+            engine_index += 1
+
+        # Tạo thông tin hiển thị
+        for engine_name, info in self.engine_analysis_info.items():
+            bestmove = info.get('bestmove', '')
+            ponder = info.get('ponder', '')
+            evaluation = info.get('evaluation', 0.0)
+            depth = info.get('depth', 0)
+
+            if bestmove and bestmove != 'none':
+                # Convert bestmove sang ký hiệu Trung Quốc
+                chinese_bestmove = self._convert_move_to_chinese(bestmove)
+                chinese_ponder = self._convert_move_to_chinese(
+                    ponder) if ponder else ""
+
+                # Format evaluation
+                eval_str = f"{evaluation:+.2f}" if abs(
+                    evaluation) < 10 else f"{evaluation:+.1f}"
+
+                # Tạo dòng thông tin với màu sắc
+                info_lines.append({
+                    'engine_name': engine_name,
+                    'color': engine_colors[engine_name],
+                    'text': f"🤖 {engine_name}",
+                    'rest_text': f" (d{depth}): {chinese_bestmove}" +
+                    (f" → {chinese_ponder}" if chinese_ponder else "") +
+                    f" ({eval_str})"
+                })
+
+        if not info_lines:
+            return
+
+        # Tính kích thước background
+        max_width = 0
+        for line in info_lines:
+            full_text = line['text'] + line['rest_text']
+            text_rect = painter.fontMetrics().boundingRect(full_text)
+            max_width = max(max_width, text_rect.width())
+
+        bg_height = len(info_lines) * line_height + 10
+        bg_width = max_width + 20
+
+        # Vẽ background
+        bg_rect = QRect(start_x - 5, start_y - 15, bg_width, bg_height)
+        painter.fillRect(bg_rect, QBrush(QColor(255, 255, 255, 240)))
+
+        # Vẽ border
+        painter.setPen(QPen(QColor(0, 0, 0, 100), 1))
+        painter.drawRect(bg_rect)
+
+        # Vẽ từng dòng thông tin
+        for i, line in enumerate(info_lines):
+            y_pos = start_y + i * line_height
+
+            # Vẽ tên engine với màu tương ứng
+            painter.setPen(QPen(line['color']))
+            engine_text_rect = painter.fontMetrics().boundingRect(line['text'])
+            painter.drawText(start_x, y_pos, line['text'])
+
+            # Vẽ phần còn lại với màu đen
+            painter.setPen(QPen(QColor(0, 0, 0)))
+            rest_x = start_x + engine_text_rect.width()
+            painter.drawText(rest_x, y_pos, line['rest_text'])
+
+    def _convert_move_to_chinese(self, move: str) -> str:
+        """
+        Convert engine move (e.g., 'b2e2') sang ký hiệu Trung Quốc (e.g., 'Pháo 8 tấn 5')
+
+        Args:
+            move: Engine move notation (e.g., 'b2e2')
+
+        Returns:
+            str: Chinese notation (e.g., 'Pháo 8 tấn 5')
+        """
+        if not move or len(move) < 4:
+            return move
+
+        try:
+            # Parse move: b2e2 -> from b2, to e2
+            from_pos = move[:2]  # b2
+            to_pos = move[2:4]   # e2
+
+            from_coords = self._pos_to_coords(from_pos)
+            to_coords = self._pos_to_coords(to_pos)
+
+            if not from_coords or not to_coords:
+                return move
+
+            from_row, from_col = from_coords
+            to_row, to_col = to_coords
+
+            # Lấy quân cờ từ board state
+            if not self.board_state:
+                return move
+
+            piece = self.board_state[from_row][from_col]
+            if not piece:
+                return move
+
+            # Sử dụng format_move_chinese_style từ constants.py
+            current_player = 'red' if piece.isupper() else 'black'
+            return format_move_chinese_style(piece, from_row, from_col, to_row, to_col, current_player)
+
+        except Exception as e:
+            print(f"❌ Error converting move to Chinese: {e}")
+            return move

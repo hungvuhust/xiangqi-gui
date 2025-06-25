@@ -748,12 +748,18 @@ class SetupWidget(QWidget):
 
     def apply_board(self):
         """Validate và apply bàn cờ hiện tại"""
+        print(f"🚀 [SETUP] ===== APPLY BOARD CALLED =====")
         fen = self.validate_board_and_get_fen()
+        print(f"🚀 [SETUP] Validated FEN: {fen}")
         if fen:
             self.current_fen = fen  # Lưu FEN đã apply
             self.position_changed.emit(fen)
+
+            # Load lại toàn bộ engine như khi tạo ván mới
+            self._reload_engines()
+
             self.status_label.setText(
-                "✅ Đã apply bàn cờ thành công! Chuyển sang chế độ chơi...")
+                "✅ Đã apply bàn cờ thành công! Đang restart engines như ván mới... 🔄")
 
             # Chuyển sang play mode
             self.setup_mode = False
@@ -857,6 +863,80 @@ class SetupWidget(QWidget):
         except Exception as e:
             print(f"❌ SetupWidget: Error parsing board FEN: {e}")
             return None
+
+    def _reload_engines(self):
+        """Reload engines hiện có với FEN mới từ setup mode"""
+        try:
+            print(f"🎯 [SETUP] ===== RELOADING ENGINES CALLED ===== ")
+            print(f"🎯 [SETUP] Current FEN: {self.current_fen}")
+            print("🎯 [SETUP] Reloading engines with new FEN...")
+
+            # Tìm main window để access multi-engine manager
+            main_window = self.parent()
+            while main_window and not hasattr(main_window, 'multi_engine_widget'):
+                main_window = main_window.parent()
+
+            if main_window and hasattr(main_window, 'multi_engine_widget'):
+                multi_engine_widget = main_window.multi_engine_widget
+
+                if multi_engine_widget and self.current_fen:
+                    # 1. FORCE UPDATE main window game state với FEN mới từ setup
+                    if hasattr(main_window, 'game_state'):
+                        print(
+                            f"🎯 [SETUP] Updating main window with new FEN: {self.current_fen[:50]}...")
+
+                        # Load FEN vào main window game state
+                        success = main_window.game_state.load_from_fen(
+                            self.current_fen)
+                        if success:
+                            # Update board widget với game state mới
+                            main_window.board_widget.board_state = [
+                                row[:] for row in main_window.game_state.board]
+                            main_window.board_widget.set_current_player(
+                                main_window.game_state.current_player)
+                            main_window.board_widget.update()
+                            print(
+                                "✅ [SETUP] Successfully updated main window game state")
+                        else:
+                            print(
+                                "❌ [SETUP] Failed to load FEN into main window game state")
+
+                    # 2. Clear board widget hints
+                    if hasattr(main_window, 'board_widget'):
+                        main_window.board_widget.clear_engine_hint()
+                        main_window.board_widget.selected_square = None
+                        main_window.board_widget.possible_moves = []
+                        main_window.board_widget.update()
+                        print("✓ [SETUP] Cleared board widget state")
+
+                    # 3. Reload engines với FEN mới (method đơn giản)
+                    current_moves = main_window.convert_moves_to_engine_notation(
+                        main_window.game_state.move_history) if hasattr(main_window, 'convert_moves_to_engine_notation') else []
+
+                    multi_engine_widget.reload_engines_with_new_position(
+                        self.current_fen, current_moves)
+
+                    # 4. Emit position changed để sync với các components khác
+                    if hasattr(main_window, '_emit_position_changed'):
+                        main_window._emit_position_changed()
+                        print(
+                            "🚀 [SETUP] Called _emit_position_changed() for sync")
+
+                    # Update status
+                    self.status_label.setText(
+                        "🎉 Engines đã được reload với FEN mới! 🔄")
+                    print("✅ [SETUP] Engine reload completed successfully")
+
+                else:
+                    print("❌ [SETUP] No multi_engine_widget or current_fen")
+            else:
+                print(
+                    "❌ [SETUP] Could not find main window with multi_engine_widget")
+
+        except Exception as e:
+            print(f"❌ [SETUP] Error reloading engines: {e}")
+            import traceback
+            traceback.print_exc()
 
     def back_to_setup(self):
         """Quay lại chế độ xếp cờ"""
