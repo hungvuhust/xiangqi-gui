@@ -50,37 +50,72 @@ Game cờ tướng sử dụng PyQt5 với engine UCI/UCCI bên ngoài, hỗ tr�
 
 ```
 xiangqi-gui/
-├── main.py                 # Entry point của ứng dụng
-├── requirements.txt        # Dependencies
+├── main.py                    # Entry point của ứng dụng
+├── requirements.txt           # Dependencies Python
+├── setup.py                   # Setup cho ROS2 package
+├── package.xml               # ROS2 package manifest
+├── saved_position.fen        # Position đã lưu
+├── shared_game_state.json    # Trạng thái game chia sẻ
 ├── config/
 │   ├── __init__.py
-│   ├── settings.py        # Cấu hình game
-│   └── engines.json       # Danh sách engine
+│   ├── settings.py           # Cấu hình game
+│   └── engines.json          # Danh sách engine
 ├── src/
-│   ├── gui/
-│   │   ├── main_window.py      # Cửa sổ chính với engine integration
-│   │   ├── board_widget.py     # Widget bàn cờ với dual arrow system
-│   │   ├── game_info_widget.py # Widget thông tin game và engine analysis
-│   │   └── dialogs/
-│   │       └── fen_dialog.py   # Dialog setup position
+│   ├── __init__.py
 │   ├── core/
-│   │   └── game_state.py      # Logic game với undo/redo
+│   │   ├── __init__.py
+│   │   └── game_state.py     # Logic game với undo/redo
+│   ├── gui/
+│   │   ├── __init__.py
+│   │   ├── main_window.py         # Cửa sổ chính với multi-engine
+│   │   ├── board_widget.py        # Widget bàn cờ với arrows & analysis info
+│   │   ├── game_info_widget.py    # Widget thông tin game
+│   │   ├── multi_engine_widget.py # Widget quản lý nhiều engine
+│   │   ├── setup_widget.py        # Widget thiết lập position
+│   │   └── dialogs/
+│   │       ├── __init__.py
+│   │       └── fen_dialog.py      # Dialog setup position
 │   ├── engine/
-│   │   └── ucci_protocol.py   # Thread-safe UCCI protocol
+│   │   ├── __init__.py
+│   │   ├── ucci_protocol.py       # UCCI protocol implementation
+│   │   └── multi_engine_manager.py # Quản lý nhiều engine đồng thời
+│   ├── ros/
+│   │   └── ros_controller.py      # ROS2 integration controller
 │   └── utils/
-│       ├── constants.py       # Hằng số game
-│       └── svg_renderer.py    # SVG rendering utilities
+│       ├── __init__.py
+│       ├── constants.py           # Hằng số game và Chinese notation
+│       ├── shared_state.py        # Shared state management
+│       └── svg_renderer.py        # SVG/PNG rendering utilities
+├── xiangqi_gui/
+│   ├── __init__.py
+│   └── ros_service_node.py       # ROS2 service node
+├── resource/
+│   └── xiangqi_gui              # ROS2 resource marker
 ├── assets/
 │   ├── images/
-│   │   ├── pieces/           # Hình ảnh quân cờ PNG
-│   │   │   ├── red/          # Quân đỏ (rK, rA, rB, rN, rR, rC, rP)
-│   │   │   └── black/        # Quân đen (bK, bA, bB, bN, bR, bC, bP)
-│   │   └── board/
-│   │       └── xiangqiboard_.png  # Nền bàn cờ
-│   └── sounds/              # Âm thanh (tùy chọn)
-├── engines/                 # Engine executables
-│   └── Fairy-Stockfish/     # Engine mặc định
-└── tests/                   # Unit tests
+│   │   ├── pieces/              # Hình ảnh quân cờ PNG
+│   │   │   ├── red/             # Quân đỏ (rK, rA, rB, rN, rR, rC, rP)
+│   │   │   └── black/           # Quân đen (bK, bA, bB, bN, bR, bC, bP)
+│   │   ├── board/
+│   │   │   └── xiangqiboard_.png # Nền bàn cờ
+│   │   └── ui/
+│   │       └── icons/           # Icons cho UI
+│   └── sounds/                  # Âm thanh (tùy chọn)
+├── engines/                     # Engine executables
+│   ├── README.md               # Hướng dẫn engines
+│   ├── Fairy-Stockfish/
+│   │   ├── fairy-stockfish     # Engine executable
+│   │   └── bench.txt          # Benchmark results
+│   └── Pikafish/
+│       ├── pikafish           # Engine executable
+│       └── pikafish.nnue      # Neural network weights
+├── tests/                      # Unit tests
+│   ├── test_analysis.py       # Test phân tích engine
+│   ├── test_ros_service.py    # Test ROS integration
+│   ├── test_shared_state.py   # Test shared state
+│   └── test_signal.py         # Test signal handling
+└── docs/
+    └── ROS_INTEGRATION.md      # Tài liệu tích hợp ROS2
 ```
 
 ## Hướng dẫn sử dụng
